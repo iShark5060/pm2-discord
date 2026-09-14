@@ -30,6 +30,19 @@ test('isValidDiscordWebhookUrl: rejects non-Discord domains', () => {
   assert.strictEqual(result, false, 'should reject non-Discord domains');
 });
 
+test('isValidDiscordWebhookUrl: rejects hosts that only contain discord.com as a substring', () => {
+  assert.strictEqual(
+    isValidDiscordWebhookUrl('https://evil-discord.com/api/webhooks/1/token'),
+    false,
+    'should reject evil-discord.com',
+  );
+  assert.strictEqual(
+    isValidDiscordWebhookUrl('https://discord.com.evil.net/api/webhooks/1/token'),
+    false,
+    'should reject discord.com as a prefix label',
+  );
+});
+
 test('isValidDiscordWebhookUrl: rejects URL without path', () => {
   const url = 'https://discord.com/';
   const result = isValidDiscordWebhookUrl(url);

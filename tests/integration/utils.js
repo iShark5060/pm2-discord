@@ -1,4 +1,4 @@
-const { execSync } = require('node:child_process');
+const { execFileSync, execSync } = require('node:child_process');
 const { join } = require('node:path');
 
 /**
@@ -48,10 +48,17 @@ function pm2Unset(key) {
  * @returns {void}
  */
 function pm2Start(envVars, appName) {
+  const env = { ...process.env };
+  for (const pair of envVars.split(/\s+/).filter(Boolean)) {
+    const eq = pair.indexOf('=');
+    if (eq > 0) env[pair.slice(0, eq)] = pair.slice(eq + 1);
+  }
+
   try {
-    execSync(
-      `${envVars} npx pm2 start ${join(__dirname, '..', 'fixtures', 'test-app.js')} --name ${appName} --no-autorestart`,
-      { stdio: 'inherit' },
+    execFileSync(
+      'npx',
+      ['pm2', 'start', join(__dirname, '..', 'fixtures', 'test-app.js'), '--name', appName, '--no-autorestart'],
+      { stdio: 'inherit', env },
     );
   } catch (e) {
     console.error(`PM2 start ${appName} failed:`, e.message);

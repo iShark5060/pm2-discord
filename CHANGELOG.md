@@ -21,6 +21,7 @@
 - Replace `node-fetch` with Node's built-in `fetch`.
 - Drop npm lockfile in favor of `pnpm-lock.yaml`.
 - Release workflow compiles `dist/` onto version tags and floating `v2` / `v2.x` tags.
+- Allowlist Discord webhook hostnames instead of a substring match.
 
 ## 1.0.0
 

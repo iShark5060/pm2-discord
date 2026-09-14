@@ -1,0 +1,45 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: '/'
+    schedule:
+      interval: 'daily'
+      time: '00:00'
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: 'chore'
+      include: 'scope'
+    cooldown:
+      default-days: 1
+    ignore:
+      - dependency-name: '@types/node'
+        versions:
+          - '>=27.0.0'
+    groups:
+      production-dependencies:
+        dependency-type: 'production'
+      development-dependencies:
+        dependency-type: 'development'
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: daily
+      time: '00:00'
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: ci
+      include: scope
+    cooldown:
+      default-days: 1
+      exclude:
+        - '*'
+    ignore:
+      - dependency-name: '*'
+        update-types:
+          - 'version-update:semver-minor'
+          - 'version-update:semver-patch'
+    groups:
+      github-actions:
+        patterns:
+          - '*'

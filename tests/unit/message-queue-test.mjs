@@ -1,11 +1,11 @@
-import assert from "node:assert/strict";
-import { test } from "node:test";
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+
 import { MessageQueue } from '../../dist/message-queue.mjs';
 
 // ===== MESSAGE QUEUE THROTTLING TESTS =====
 
-test("MessageQueue - calculates correct throttle rate from config", () => {
-
+test('MessageQueue - calculates correct throttle rate from config', () => {
   const mockSender = async (messages) => {
     return { success: true, rateLimitInfo: {} };
   };
@@ -14,7 +14,7 @@ test("MessageQueue - calculates correct throttle rate from config", () => {
   const config = {
     discord_url: 'https://test.webhook',
     rate_limit_messages: 20,
-    rate_limit_window_seconds: 60
+    rate_limit_window_seconds: 60,
   };
 
   const queue = new MessageQueue(config, mockSender);
@@ -26,18 +26,16 @@ test("MessageQueue - calculates correct throttle rate from config", () => {
   assert.ok(queue.requestsPerTick >= 1, 'should have at least 1 request per tick');
 
   queue.stopInterval();
-  
 });
 
-test("MessageQueue - uses default webhook rate limit when no config provided", () => {
-
+test('MessageQueue - uses default webhook rate limit when no config provided', () => {
   const mockSender = async (messages) => {
     return { success: true, rateLimitInfo: {} };
   };
 
   // No rate config provided - should use Discord webhook default (30/60sec = 0.5/sec)
   const config = {
-    discord_url: 'https://test.webhook'
+    discord_url: 'https://test.webhook',
   };
 
   const queue = new MessageQueue(config, mockSender);
@@ -48,11 +46,9 @@ test("MessageQueue - uses default webhook rate limit when no config provided", (
   assert.ok(effectiveRate <= 0.5, 'should default to webhook safe rate of 0.5 req/sec');
 
   queue.stopInterval();
-  
 });
 
-test("MessageQueue - caps rate at webhook limit (30 per 60sec)", () => {
-
+test('MessageQueue - caps rate at webhook limit (30 per 60sec)', () => {
   const mockSender = async (messages) => {
     return { success: true, rateLimitInfo: {} };
   };
@@ -72,11 +68,9 @@ test("MessageQueue - caps rate at webhook limit (30 per 60sec)", () => {
   assert.ok(effectiveRate <= 0.5, 'should cap rate at webhook limit of 0.5 req/sec');
 
   queue.stopInterval();
-  
 });
 
-test("MessageQueue - tracks request history correctly", async () => {
-
+test('MessageQueue - tracks request history correctly', async () => {
   let callCount = 0;
   const mockSender = async (messages) => {
     callCount++;
@@ -87,7 +81,7 @@ test("MessageQueue - tracks request history correctly", async () => {
     discord_url: 'https://test.webhook',
     rate_limit_messages: 5,
     rate_limit_window_seconds: 2,
-    buffer: false
+    buffer: false,
   };
 
   const queue = new MessageQueue(config, mockSender);
@@ -107,11 +101,9 @@ test("MessageQueue - tracks request history correctly", async () => {
   assert.ok(history[0].timestamp > 0, 'history entry should have timestamp');
 
   queue.stopInterval();
-  
 });
 
-test("MessageQueue - respects Discord rate limit backoff", async () => {
-
+test('MessageQueue - respects Discord rate limit backoff', async () => {
   let callCount = 0;
   const mockSender = async (messages) => {
     callCount++;
@@ -120,7 +112,7 @@ test("MessageQueue - respects Discord rate limit backoff", async () => {
       success: false,
       rateLimited: true,
       retryAfter: 2,
-      rateLimitInfo: {}
+      rateLimitInfo: {},
     };
   };
 
@@ -128,7 +120,7 @@ test("MessageQueue - respects Discord rate limit backoff", async () => {
     discord_url: 'https://test.webhook',
     rate_limit_messages: 10,
     rate_limit_window_seconds: 1,
-    buffer: false
+    buffer: false,
   };
 
   const queue = new MessageQueue(config, mockSender);
@@ -136,21 +128,18 @@ test("MessageQueue - respects Discord rate limit backoff", async () => {
   queue.addMessage({ name: 'app', event: 'log', description: 'msg1', timestamp: Date.now() });
   await queue.flush();
 
-
   assert.strictEqual(callCount, 1, 'should have attempted to send');
   assert.strictEqual(queue.canSendNow(), false, 'should be in backoff period');
   queue.stopInterval();
-  
 });
 
-test("MessageQueue - calculates correct delay until next send", async () => {
-
+test('MessageQueue - calculates correct delay until next send', async () => {
   const mockSender = async (messages) => {
     return {
       success: false,
       rateLimited: true,
       retryAfter: 2,
-      rateLimitInfo: {}
+      rateLimitInfo: {},
     };
   };
 
@@ -158,7 +147,7 @@ test("MessageQueue - calculates correct delay until next send", async () => {
     discord_url: 'https://test.webhook',
     rate_limit_messages: 5,
     rate_limit_window_seconds: 2,
-    buffer: false
+    buffer: false,
   };
 
   const queue = new MessageQueue(config, mockSender);
@@ -173,11 +162,9 @@ test("MessageQueue - calculates correct delay until next send", async () => {
 
   assert.ok(delay > 0, 'should require a delay');
   assert.ok(delay <= 2000, 'delay should not exceed retry_after time');
-  
 });
 
-test("MessageQueue - handles successful sends", async () => {
-
+test('MessageQueue - handles successful sends', async () => {
   let sentMessages = [];
   const mockSender = async (messages) => {
     sentMessages = messages;
@@ -188,7 +175,7 @@ test("MessageQueue - handles successful sends", async () => {
     discord_url: 'https://test.webhook',
     rate_limit_messages: 10,
     rate_limit_window_seconds: 1,
-    buffer: false
+    buffer: false,
   };
 
   const queue = new MessageQueue(config, mockSender);
@@ -202,17 +189,15 @@ test("MessageQueue - handles successful sends", async () => {
 
   assert.ok(sentMessages.length > 0, 'should have sent messages');
   assert.strictEqual(queue.canSendNow(), true, 'should be able to send again');
-  
 });
 
-test("MessageQueue - puts messages back on rate limit", async () => {
-
+test('MessageQueue - puts messages back on rate limit', async () => {
   const mockSender = async (messages) => {
     return {
       success: false,
       rateLimited: true,
       retryAfter: 1,
-      rateLimitInfo: {}
+      rateLimitInfo: {},
     };
   };
 
@@ -220,7 +205,7 @@ test("MessageQueue - puts messages back on rate limit", async () => {
     discord_url: 'https://test.webhook',
     rate_limit_messages: 10,
     rate_limit_window_seconds: 1,
-    buffer: false
+    buffer: false,
   };
 
   const queue = new MessageQueue(config, mockSender);
@@ -235,11 +220,9 @@ test("MessageQueue - puts messages back on rate limit", async () => {
   queue.stopInterval();
   assert.strictEqual(queueLengthBefore, 2, 'should have 2 messages before flush');
   assert.strictEqual(queueLengthAfter, 2, 'should still have 2 messages after rate limit (put back)');
-  
 });
 
-test("MessageQueue - starts interval when message added", () => {
-
+test('MessageQueue - starts interval when message added', () => {
   const mockSender = async (messages) => {
     return { success: true, rateLimitInfo: {} };
   };
@@ -248,7 +231,7 @@ test("MessageQueue - starts interval when message added", () => {
     discord_url: 'https://test.webhook',
     rate_limit_messages: 10,
     rate_limit_window_seconds: 1,
-    buffer: false
+    buffer: false,
   };
 
   const queue = new MessageQueue(config, mockSender);
@@ -260,11 +243,9 @@ test("MessageQueue - starts interval when message added", () => {
   assert.ok(queue.flushInterval !== null, 'interval should start after adding message');
 
   queue.stopInterval();
-  
 });
 
-test("MessageQueue - stops interval when queue is empty", async () => {
-
+test('MessageQueue - stops interval when queue is empty', async () => {
   const mockSender = async (messages) => {
     return { success: true, rateLimitInfo: {} };
   };
@@ -273,7 +254,7 @@ test("MessageQueue - stops interval when queue is empty", async () => {
     discord_url: 'https://test.webhook',
     rate_limit_messages: 10,
     rate_limit_window_seconds: 1,
-    buffer: false
+    buffer: false,
   };
 
   const queue = new MessageQueue(config, mockSender);
@@ -288,11 +269,9 @@ test("MessageQueue - stops interval when queue is empty", async () => {
 
   assert.strictEqual(queue.flushInterval, null, 'interval should stop when queue is empty');
   queue.stopInterval();
-  
 });
 
-test("MessageQueue - cleans up old request history", () => {
-
+test('MessageQueue - cleans up old request history', () => {
   const mockSender = async (messages) => {
     return { success: true, rateLimitInfo: {} };
   };
@@ -321,11 +300,9 @@ test("MessageQueue - cleans up old request history", () => {
   assert.ok(history.length >= 1, 'should keep recent entries');
 
   queue.stopInterval();
-  
 });
 
-test("MessageQueue - buffers messages when buffer is enabled", async () => {
-
+test('MessageQueue - buffers messages when buffer is enabled', async () => {
   let sentMessages = [];
   const mockSender = async (messages) => {
     sentMessages = messages;
@@ -337,7 +314,7 @@ test("MessageQueue - buffers messages when buffer is enabled", async () => {
     rate_limit_messages: 10,
     rate_limit_window_seconds: 1,
     buffer: true,
-    buffer_seconds: 1
+    buffer_seconds: 1,
   };
 
   const queue = new MessageQueue(config, mockSender);
@@ -348,19 +325,20 @@ test("MessageQueue - buffers messages when buffer is enabled", async () => {
   queue.addMessage({ name: 'app', event: 'log', description: 'Message 3', timestamp: Date.now() });
 
   // Wait for buffer to flush (1s) + rate limit interval (2s for 0.5 req/sec)
-  await new Promise(resolve => setTimeout(resolve, 3500));
+  await new Promise((resolve) => setTimeout(resolve, 3500));
 
   assert.strictEqual(sentMessages.length, 1, 'should send only one message');
-  assert.ok(sentMessages[0].description.includes('Message 1') &&
-    sentMessages[0].description.includes('Message 2') &&
-    sentMessages[0].description.includes('Message 3'), 'should combine all messages');
+  assert.ok(
+    sentMessages[0].description.includes('Message 1') &&
+      sentMessages[0].description.includes('Message 2') &&
+      sentMessages[0].description.includes('Message 3'),
+    'should combine all messages',
+  );
 
   queue.stopInterval();
-  
 });
 
-test("MessageQueue - does not buffer when buffer is disabled", async () => {
-
+test('MessageQueue - does not buffer when buffer is disabled', async () => {
   let callCount = 0;
   const mockSender = async (messages) => {
     callCount++;
@@ -371,7 +349,7 @@ test("MessageQueue - does not buffer when buffer is disabled", async () => {
     discord_url: 'https://test.webhook',
     rate_limit_messages: 10,
     rate_limit_window_seconds: 1,
-    buffer: false
+    buffer: false,
   };
 
   const queue = new MessageQueue(config, mockSender);
@@ -385,11 +363,9 @@ test("MessageQueue - does not buffer when buffer is disabled", async () => {
   assert.ok(callCount >= 1, 'should send messages without buffering');
 
   queue.stopInterval();
-  
 });
 
-test("MessageQueue - respects buffer_seconds timing", async () => {
-
+test('MessageQueue - respects buffer_seconds timing', async () => {
   let callCount = 0;
   const mockSender = async (messages) => {
     callCount++;
@@ -401,7 +377,7 @@ test("MessageQueue - respects buffer_seconds timing", async () => {
     rate_limit_messages: 10,
     rate_limit_window_seconds: 1,
     buffer: true,
-    buffer_seconds: 0.5  // 500ms
+    buffer_seconds: 0.5, // 500ms
   };
 
   const queue = new MessageQueue(config, mockSender);
@@ -409,22 +385,20 @@ test("MessageQueue - respects buffer_seconds timing", async () => {
   queue.addMessage({ name: 'app', event: 'log', description: 'Message 1', timestamp: Date.now() });
 
   // Wait 600ms (buffer) + 2000ms (rate limit interval for 0.5 req/sec)
-  await new Promise(resolve => setTimeout(resolve, 2700));
+  await new Promise((resolve) => setTimeout(resolve, 2700));
 
   // Add another message after buffer expires
   queue.addMessage({ name: 'app', event: 'log', description: 'Message 2', timestamp: Date.now() });
 
   // Wait for second buffer (500ms) + rate limit interval (2000ms)
-  await new Promise(resolve => setTimeout(resolve, 2700));
+  await new Promise((resolve) => setTimeout(resolve, 2700));
 
   assert.strictEqual(callCount, 2, 'should send two separate messages when buffer_seconds expires');
 
   queue.stopInterval();
-  
 });
 
-test("MessageQueue - stops sending on invalid webhook (404)", async () => {
-
+test('MessageQueue - stops sending on invalid webhook (404)', async () => {
   let callCount = 0;
   const mockSender = async (messages) => {
     callCount++;
@@ -433,7 +407,7 @@ test("MessageQueue - stops sending on invalid webhook (404)", async () => {
       success: false,
       webhookInvalid: true,
       error: 'HTTP 404: Not Found',
-      rateLimitInfo: {}
+      rateLimitInfo: {},
     };
   };
 
@@ -441,7 +415,7 @@ test("MessageQueue - stops sending on invalid webhook (404)", async () => {
     discord_url: 'https://test.webhook',
     rate_limit_messages: 10,
     rate_limit_window_seconds: 1,
-    buffer: false
+    buffer: false,
   };
 
   const queue = new MessageQueue(config, mockSender);
@@ -459,13 +433,11 @@ test("MessageQueue - stops sending on invalid webhook (404)", async () => {
   assert.strictEqual(callCount, 1, 'should not attempt to send again after 404');
 
   queue.stopInterval();
-  
 });
 
 // ===== CHARACTER LIMIT TESTS =====
 
-test("MessageQueue - tracks character count correctly in buffer", () => {
-
+test('MessageQueue - tracks character count correctly in buffer', () => {
   const mockSender = async (messages) => {
     return { success: true, rateLimitInfo: {} };
   };
@@ -473,7 +445,7 @@ test("MessageQueue - tracks character count correctly in buffer", () => {
   const config = {
     discord_url: 'https://test.webhook',
     buffer: true,
-    buffer_seconds: 1
+    buffer_seconds: 1,
   };
 
   const queue = new MessageQueue(config, mockSender);
@@ -491,11 +463,9 @@ test("MessageQueue - tracks character count correctly in buffer", () => {
   assert.ok(queue.characterCount <= 1000, 'character count should only count message content');
 
   queue.stopInterval();
-  
 });
 
-test("MessageQueue - flushes buffer when character limit exceeded", async () => {
-
+test('MessageQueue - flushes buffer when character limit exceeded', async () => {
   let sentMessages = [];
   const mockSender = async (messages) => {
     sentMessages = messages;
@@ -507,7 +477,7 @@ test("MessageQueue - flushes buffer when character limit exceeded", async () => 
     rate_limit_messages: 10,
     rate_limit_window_seconds: 1,
     buffer: true,
-    buffer_seconds: 5  // Long buffer to prevent natural flush
+    buffer_seconds: 5, // Long buffer to prevent natural flush
   };
 
   const queue = new MessageQueue(config, mockSender);
@@ -523,11 +493,9 @@ test("MessageQueue - flushes buffer when character limit exceeded", async () => 
   assert.ok(queue.currentBuffer.length <= 1, 'current buffer should contain only the new message');
 
   queue.stopInterval();
-  
 });
 
-test("MessageQueue - truncates single messages exceeding 2000 characters", () => {
-
+test('MessageQueue - truncates single messages exceeding 2000 characters', () => {
   let sentMessages = [];
   const mockSender = async (messages) => {
     sentMessages = messages;
@@ -539,7 +507,7 @@ test("MessageQueue - truncates single messages exceeding 2000 characters", () =>
     buffer: true,
     buffer_seconds: 1,
     rate_limit_messages: 10,
-    rate_limit_window_seconds: 1
+    rate_limit_window_seconds: 1,
   };
 
   const queue = new MessageQueue(config, mockSender);
@@ -548,7 +516,7 @@ test("MessageQueue - truncates single messages exceeding 2000 characters", () =>
     name: 'app',
     event: 'log',
     description: 'x'.repeat(3000),
-    timestamp: Date.now()
+    timestamp: Date.now(),
   };
 
   queue.addMessage(oversizedMessage);
@@ -559,11 +527,9 @@ test("MessageQueue - truncates single messages exceeding 2000 characters", () =>
   assert.ok(queue.messageQueue[0].description.length <= 2000, 'message should be truncated to 2000 chars or less');
 
   queue.stopInterval();
-  
 });
 
-test("MessageQueue - accounts for newlines when checking character limit", async () => {
-
+test('MessageQueue - accounts for newlines when checking character limit', async () => {
   let sentMessages = [];
   const mockSender = async (messages) => {
     sentMessages = messages;
@@ -575,7 +541,7 @@ test("MessageQueue - accounts for newlines when checking character limit", async
     rate_limit_messages: 10,
     rate_limit_window_seconds: 1,
     buffer: true,
-    buffer_seconds: 5
+    buffer_seconds: 5,
   };
 
   const queue = new MessageQueue(config, mockSender);
@@ -591,11 +557,9 @@ test("MessageQueue - accounts for newlines when checking character limit", async
   assert.ok(flushCount > 0, 'messages should be split across buffer and queue due to newline accounting');
 
   queue.stopInterval();
-  
 });
 
-test("MessageQueue - shouldFlushBuffer triggers at character limit", () => {
-
+test('MessageQueue - shouldFlushBuffer triggers at character limit', () => {
   const mockSender = async (messages) => {
     return { success: true, rateLimitInfo: {} };
   };
@@ -604,7 +568,7 @@ test("MessageQueue - shouldFlushBuffer triggers at character limit", () => {
     discord_url: 'https://test.webhook',
     buffer: true,
     buffer_seconds: 1,
-    queue_max: 100
+    queue_max: 100,
   };
 
   const queue = new MessageQueue(config, mockSender);
@@ -623,11 +587,9 @@ test("MessageQueue - shouldFlushBuffer triggers at character limit", () => {
   assert.ok(queue.characterCount >= 0, 'buffer management should be working');
 
   queue.stopInterval();
-  
 });
 
-test("MessageQueue - combines messages with newlines without exceeding limit", async () => {
-
+test('MessageQueue - combines messages with newlines without exceeding limit', async () => {
   let sentMessages = [];
   const mockSender = async (messages) => {
     sentMessages = messages;
@@ -639,7 +601,7 @@ test("MessageQueue - combines messages with newlines without exceeding limit", a
     rate_limit_messages: 10,
     rate_limit_window_seconds: 1,
     buffer: true,
-    buffer_seconds: 1
+    buffer_seconds: 1,
   };
 
   const queue = new MessageQueue(config, mockSender);
@@ -650,7 +612,7 @@ test("MessageQueue - combines messages with newlines without exceeding limit", a
   queue.addMessage({ name: 'app', event: 'log', description: 'c'.repeat(600), timestamp: Date.now() });
 
   // Wait for buffer flush (1s) + rate limit interval (2s at 0.5 req/sec)
-  await new Promise(resolve => setTimeout(resolve, 3500));
+  await new Promise((resolve) => setTimeout(resolve, 3500));
 
   assert.ok(sentMessages.length > 0, 'should send at least one message');
 
@@ -663,11 +625,9 @@ test("MessageQueue - combines messages with newlines without exceeding limit", a
   }
 
   queue.stopInterval();
-  
 });
 
-test("MessageQueue - resets character count on buffer flush", async () => {
-
+test('MessageQueue - resets character count on buffer flush', async () => {
   const mockSender = async (messages) => {
     return { success: true, rateLimitInfo: {} };
   };
@@ -677,7 +637,7 @@ test("MessageQueue - resets character count on buffer flush", async () => {
     rate_limit_messages: 10,
     rate_limit_window_seconds: 1,
     buffer: true,
-    buffer_seconds: 0.5
+    buffer_seconds: 0.5,
   };
 
   const queue = new MessageQueue(config, mockSender);
@@ -686,16 +646,14 @@ test("MessageQueue - resets character count on buffer flush", async () => {
   assert.strictEqual(queue.characterCount, 500, 'should have 500 chars before flush');
 
   // Wait for buffer to flush
-  await new Promise(resolve => setTimeout(resolve, 1000));
+  await new Promise((resolve) => setTimeout(resolve, 1000));
 
   assert.strictEqual(queue.characterCount, 0, 'character count should reset after flush');
 
   queue.stopInterval();
-  
 });
 
-test("MessageQueue - respects queue_max limit along with character limit", () => {
-
+test('MessageQueue - respects queue_max limit along with character limit', () => {
   const mockSender = async (messages) => {
     return { success: true, rateLimitInfo: {} };
   };
@@ -704,19 +662,122 @@ test("MessageQueue - respects queue_max limit along with character limit", () =>
     discord_url: 'https://test.webhook',
     buffer: true,
     buffer_seconds: 1,
-    queue_max: 5  // Only 5 messages max per buffer
+    queue_max: 5, // Only 5 messages max per buffer
   };
 
   const queue = new MessageQueue(config, mockSender);
 
   // Add 5 small messages
   for (let i = 0; i < 5; i++) {
-    queue.addMessage({ name: 'app', event: 'log', description: 'msg', timestamp: Date.now() });
+    queue.addMessage({ name: 'app', event: 'log', description: `msg ${i}`, timestamp: Date.now() });
   }
 
   // Buffer should still have all 5 since they haven't hit flush yet
   assert.ok(queue.currentBuffer.length <= 5, 'should respect queue_max limit');
 
   queue.stopInterval();
-  
+});
+
+test('MessageQueue - collapses duplicate unsent messages', async () => {
+  const sent = [];
+  const mockSender = async (messages) => {
+    sent.push(...messages);
+    return { success: true, rateLimitInfo: {} };
+  };
+
+  const queue = new MessageQueue(
+    {
+      discord_url: 'https://test.webhook',
+      buffer: false,
+      collapse: true,
+      collapse_seconds: 60,
+      format: false,
+      rate_limit_messages: 30,
+      rate_limit_window_seconds: 1,
+    },
+    mockSender,
+  );
+
+  for (let i = 0; i < 6; i++) {
+    queue.addMessage({ name: 'api', event: 'error', description: 'getaddrinfo EAI_AGAIN', timestamp: Date.now() });
+  }
+
+  assert.strictEqual(queue.messageQueue.length, 1, 'duplicates should stay as one queued message');
+  assert.strictEqual(queue.messageQueue[0]._repeatCount, 6);
+
+  await queue.flush();
+
+  assert.strictEqual(sent.length, 1, 'should send once');
+  assert.ok(sent[0].description.includes('getaddrinfo EAI_AGAIN'));
+  assert.ok(sent[0].description.includes('[5 more entries]'));
+
+  queue.stopInterval();
+});
+
+test('MessageQueue - truncated code block still closes', async () => {
+  const sent = [];
+  const mockSender = async (messages) => {
+    sent.push(...messages);
+    return { success: true, rateLimitInfo: {} };
+  };
+
+  const queue = new MessageQueue(
+    {
+      discord_url: 'https://test.webhook',
+      buffer: false,
+      collapse: false,
+      format: true,
+      rate_limit_messages: 30,
+      rate_limit_window_seconds: 1,
+    },
+    mockSender,
+  );
+
+  queue.addMessage({ name: 'api', event: 'error', description: 'stack\n'.repeat(400), timestamp: Date.now() });
+  await queue.flush();
+
+  assert.strictEqual(sent.length, 1);
+  assert.ok(sent[0].description.startsWith('```'));
+  assert.ok(sent[0].description.endsWith('```'));
+  assert.ok(sent[0].description.length <= 2000);
+
+  queue.stopInterval();
+});
+
+test('MessageQueue - holds duplicates after send until collapse window ends', async () => {
+  const sent = [];
+  const mockSender = async (messages) => {
+    sent.push(...messages);
+    return { success: true, rateLimitInfo: {} };
+  };
+
+  const queue = new MessageQueue(
+    {
+      discord_url: 'https://test.webhook',
+      buffer: false,
+      collapse: true,
+      collapse_seconds: 1,
+      format: false,
+      rate_limit_messages: 30,
+      rate_limit_window_seconds: 1,
+    },
+    mockSender,
+  );
+
+  queue.addMessage({ name: 'api', event: 'error', description: 'boom', timestamp: Date.now() });
+  await queue.flush();
+  assert.strictEqual(sent.length, 1);
+
+  queue.addMessage({ name: 'api', event: 'error', description: 'boom', timestamp: Date.now() });
+  queue.addMessage({ name: 'api', event: 'error', description: 'boom', timestamp: Date.now() });
+  await queue.flush();
+  assert.strictEqual(sent.length, 1, 'should not send again inside the collapse window');
+
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+  await queue.flush();
+
+  assert.strictEqual(sent.length, 2, 'should flush the extra count after the window');
+  assert.ok(sent[1].description.includes('[2 more entries]'));
+
+  queue.stopInterval();
 });

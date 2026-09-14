@@ -1,32 +1,46 @@
-
 export interface DiscordMessage {
-  name: string,
-  event: string,
-  description: string | null,
-  timestamp: number | null,
+  name: string;
+  event: string;
+  description: string | null;
+  timestamp: number | null;
   /**
    * Internal: Number of times this message has been attempted to send.
    * Used to prevent infinite retries in case of persistent failures.
    */
-  _retryAttempts?: number
+  _retryAttempts?: number;
+  /**
+   * Internal: how many times this message (including the first) has been seen
+   * inside the collapse window.
+   */
+  _repeatCount?: number;
+  /**
+   * Internal: collapse key for duplicate matching.
+   */
+  _fingerprint?: string;
 }
 
 export interface Process {
-  name: string,
-  exec_mode: string,
-  instances: number,
-  pm_id: string | number
+  name: string;
+  exec_mode: string;
+  instances: number;
+  pm_id: string | number;
 }
 
 // data.process.name
 export interface BusData {
-  process: Process,
-  data?: string
+  process: Process;
+  data?: unknown;
+  event?: string;
+  msg?: string;
+}
+
+export interface Pm2Bus {
+  on(event: string, handler: (data: BusData) => unknown): void;
 }
 
 export interface LogMessage {
-  description: string | null,
-  timestamp: number | null
+  description: string | null;
+  timestamp: number | null;
 }
 
 /**
@@ -34,15 +48,15 @@ export interface LogMessage {
  */
 export interface DiscordRateLimitInfo {
   /** The number of requests that can be made */
-  limit?: number,
+  limit?: number;
   /** The number of remaining requests that can be made */
-  remaining?: number,
+  remaining?: number;
   /** Epoch time (seconds) at which the rate limit resets */
-  reset?: number,
+  reset?: number;
   /** Total time (in seconds) of when the current rate limit bucket will reset */
-  resetAfter?: number,
+  resetAfter?: number;
   /** A unique string denoting the rate limit being encountered */
-  bucket?: string
+  bucket?: string;
 }
 
 /**
@@ -50,86 +64,99 @@ export interface DiscordRateLimitInfo {
  */
 export interface SendToDiscordResult {
   /** Whether the request was successful */
-  success: boolean,
+  success: boolean;
   /** Whether the request was rate limited (429 response) */
-  rateLimited?: boolean,
+  rateLimited?: boolean;
   /** Seconds to wait before retrying (from Retry-After header or response body) */
-  retryAfter?: number,
+  retryAfter?: number;
   /** Whether this is a global rate limit */
-  isGlobal?: boolean,
+  isGlobal?: boolean;
   /** Whether the webhook is invalid (404 response) - should stop sending */
-  webhookInvalid?: boolean,
+  webhookInvalid?: boolean;
   /** Rate limit information from response headers */
-  rateLimitInfo: DiscordRateLimitInfo,
+  rateLimitInfo: DiscordRateLimitInfo;
   /** Error message if request failed */
-  error?: string
+  error?: string;
 }
 
 export interface SendToDiscord {
-  (messages: DiscordMessage[], discord_url: string | null): Promise<SendToDiscordResult>
+  (messages: DiscordMessage[], discord_url: string | null): Promise<SendToDiscordResult>;
 }
 
 /**
  * Tracks a single request in the rate limit history
  */
 export interface RequestHistoryEntry {
-  timestamp: number,
-  messageCount: number
+  timestamp: number;
+  messageCount: number;
 }
 
 /**
  * These config items customize the message queue behavior
  */
 export interface MessageQueueConfig {
-  discord_url: string | null,
-  rate_limit_messages: number,
-  rate_limit_window_seconds: number,
-  buffer: boolean,
-  buffer_seconds: number,
-  queue_max: number,
+  discord_url: string | null;
+  rate_limit_messages: number;
+  rate_limit_window_seconds: number;
+  buffer: boolean;
+  buffer_seconds: number;
+  queue_max: number;
+  collapse?: boolean;
+  collapse_seconds?: number;
+  format?: boolean;
 }
 
 /**
  * These config items control which PM2 `process:events` are forwarded
  */
 interface Pm2ProcessEvents {
-  restart: boolean
-  delete: boolean
-  stop: boolean
-  "restart overlimit": boolean
-  exit: boolean
-  start: boolean
-  online: boolean
+  restart: boolean;
+  delete: boolean;
+  stop: boolean;
+  'restart overlimit': boolean;
+  exit: boolean;
+  start: boolean;
+  online: boolean;
 }
 
 export interface Config extends MessageQueueConfig, Pm2ProcessEvents {
   /**
    * Filter by process name (only forward events from this process). Null to disable.
    */
-  process_name: string | null
+  process_name: string | null;
 
   /**
    * Enable message triple backtick message formatting (code blocks)
    */
-  format: boolean
+  format: boolean;
 
   /**
-   * Enable `log:out` event forwarding 
+   * Collapse duplicate / similar messages inside collapse_seconds into one payload
    */
-  log: boolean
+  collapse: boolean;
 
   /**
-   * Enable `log:err` event forwarding 
+   * Window in seconds for collapsing similar messages
    */
-  error: boolean
+  collapse_seconds: number;
 
   /**
-   * Enable `'pm2:kill'` event forwarding 
+   * Enable `log:out` event forwarding
    */
-  kill: boolean
+  log: boolean;
+
+  /**
+   * Enable `log:err` event forwarding
+   */
+  error: boolean;
+
+  /**
+   * Enable `'pm2:kill'` event forwarding
+   */
+  kill: boolean;
 
   /**
    * Enable `process:exception` event forwarding
    */
-  exception: boolean
+  exception: boolean;
 }

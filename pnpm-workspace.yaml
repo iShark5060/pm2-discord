@@ -1,0 +1,8 @@
+minimumReleaseAgeExclude:
+  - oxfmt
+  - oxlint
+  - '@oxfmt/*'
+  - '@oxlint/*'
+updateConfig:
+  ignoreDependencies:
+    - '@types/node'

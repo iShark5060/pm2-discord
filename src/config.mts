@@ -6,28 +6,32 @@ const MIN_BUFFER_SECONDS = 1;
 const MAX_BUFFER_SECONDS = 5;
 const MIN_QUEUE_MAX = 10;
 const MAX_QUEUE_MAX = 100;
+const MIN_COLLAPSE_SECONDS = 1;
+const MAX_COLLAPSE_SECONDS = 300;
 
 export const defaultConfig: Config = {
-  "log": true,
-  "error": false,
-  "kill": true,
-  "exception": true,
-  "restart": false,
-  "delete": false,
-  "stop": true,
-  "restart overlimit": true,
-  "exit": false,
-  "start": false,
-  "online": false,
-  "process_name": null,
-  "discord_url": null,
-  "buffer": true,
-  "buffer_seconds": 1,
-  "queue_max": 100,
-  "rate_limit_messages": 30,
-  "rate_limit_window_seconds": 60,
-  "format": true
-}
+  log: false,
+  error: true,
+  kill: true,
+  exception: true,
+  restart: true,
+  delete: false,
+  stop: true,
+  'restart overlimit': true,
+  exit: false,
+  start: false,
+  online: false,
+  process_name: null,
+  discord_url: null,
+  buffer: true,
+  buffer_seconds: 1,
+  queue_max: 100,
+  rate_limit_messages: 30,
+  rate_limit_window_seconds: 60,
+  format: true,
+  collapse: true,
+  collapse_seconds: 60,
+};
 
 function clamp(num: number, min: number, max: number): number {
   return Math.min(Math.max(num, min), max);
@@ -40,13 +44,29 @@ function clamp(num: number, min: number, max: number): number {
 export function convertConfigValue(key: string, value: unknown): unknown {
   // boolean keys - these should always be booleans
   const booleanKeys = new Set<string>([
-    'log', 'error', 'kill', 'exception', 'restart', 'delete', 'stop',
-    'restart overlimit', 'exit', 'start', 'online', 'buffer', 'format'
+    'log',
+    'error',
+    'kill',
+    'exception',
+    'restart',
+    'delete',
+    'stop',
+    'restart overlimit',
+    'exit',
+    'start',
+    'online',
+    'buffer',
+    'format',
+    'collapse',
   ]);
 
   // Numeric keys - these should always be numbers
   const numericKeys = new Set<string>([
-    'buffer_seconds', 'queue_max', 'rate_limit_messages', 'rate_limit_window_seconds'
+    'buffer_seconds',
+    'queue_max',
+    'rate_limit_messages',
+    'rate_limit_window_seconds',
+    'collapse_seconds',
   ]);
 
   if (booleanKeys.has(key)) {
@@ -82,7 +102,7 @@ export function loadConfig(refresh: boolean = false): Config {
   // Read config directly from environment (PM2 sets this for modules)
   const rawConfig: Record<string, unknown> = {};
   const configFromEnv = process.env['pm2-discord'];
-  debug(`process.env['pm2-discord'] = ${configFromEnv}`)
+  debug(`process.env['pm2-discord'] = ${configFromEnv}`);
   try {
     if (configFromEnv) {
       const parsed = JSON.parse(configFromEnv);
@@ -104,17 +124,26 @@ export function loadConfig(refresh: boolean = false): Config {
     }
   }
 
-  debug('moduleConfig from env with corrected types:', moduleConfig)
+  debug('moduleConfig from env with corrected types:', moduleConfig);
 
   const finalConfig = { ...defaultConfig, ...moduleConfig } as Config;
 
   // buffer seconds can be between MIN_BUFFER_SECONDS and MAX_BUFFER_SECONDS, inclusive
-  finalConfig.buffer_seconds = clamp(finalConfig.buffer_seconds, MIN_BUFFER_SECONDS, MAX_BUFFER_SECONDS);
+  finalConfig.buffer_seconds = clamp(
+    finalConfig.buffer_seconds,
+    MIN_BUFFER_SECONDS,
+    MAX_BUFFER_SECONDS,
+  );
 
   // queue max can be between MIN_QUEUE_MAX and MAX_QUEUE_MAX, inclusive
   finalConfig.queue_max = clamp(finalConfig.queue_max, MIN_QUEUE_MAX, MAX_QUEUE_MAX);
+  finalConfig.collapse_seconds = clamp(
+    finalConfig.collapse_seconds,
+    MIN_COLLAPSE_SECONDS,
+    MAX_COLLAPSE_SECONDS,
+  );
 
-  debug('finalConfig after merge and clamp:', finalConfig)
+  debug('finalConfig after merge and clamp:', finalConfig);
   cachedConfig = finalConfig;
   return finalConfig;
 }

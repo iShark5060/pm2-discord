@@ -1,6 +1,13 @@
-import assert from "node:assert/strict";
-import { test } from "node:test";
-import { checkProcessName, parseIncomingLog, parseProcessName } from "../../dist/log-utils.mjs";
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+
+import {
+  checkProcessName,
+  fitDiscordPayload,
+  messageFingerprint,
+  parseIncomingLog,
+  parseProcessName,
+} from '../../dist/log-utils.mjs';
 
 // ===== parseIncomingLog TESTS =====
 test('parseIncomingLog: extracts timestamp from standard PM2 log format', async () => {
@@ -15,10 +22,9 @@ test('parseIncomingLog: handles log without timestamp', async () => {
   assert.strictEqual(result.description, 'Simple log message', 'description should be the whole message');
 });
 
-test('parseIncomingLog: should format as code block when requested', async () => {
-  const result = await parseIncomingLog('Simple log message', true);
-  assert.ok(result.timestamp === null || result.timestamp === undefined, 'timestamp should be null');
-  assert.strictEqual(result.description, '```Simple log message```', 'description should be formatted as code block');
+test('parseIncomingLog: does not wrap as a code block', async () => {
+  const result = await parseIncomingLog('Simple log message');
+  assert.strictEqual(result.description, 'Simple log message', 'ingest should stay unformatted');
 });
 
 test('parseIncomingLog: handles empty string', async () => {
@@ -50,8 +56,8 @@ test('parseIncomingLog: handles negative timezone offset', async () => {
 });
 
 test('parseIncomingLog: strips ANSI color codes', async () => {
-  const ansiRed = "\u001b[31m";
-  const ansiReset = "\u001b[0m";
+  const ansiRed = '\u001b[31m';
+  const ansiReset = '\u001b[0m';
   const input = `2026-01-23 10:30:45 +00:00: ${ansiRed}Error occurred${ansiReset}`;
   const result = await parseIncomingLog(input);
   assert.strictEqual(result.description, 'Error occurred', 'should strip ANSI color codes from description');
@@ -123,4 +129,39 @@ test('checkProcessName: empty string process name', () => {
   const data = { process: { name: '' } };
   const result = checkProcessName(data);
   assert.strictEqual(result, true, 'should allow empty string process names');
+});
+
+test('fitDiscordPayload: keeps closing fence when truncating a code block', () => {
+  const body = 'x'.repeat(5000);
+  const result = fitDiscordPayload(body, 1, true);
+  assert.ok(result.startsWith('```'), 'should open a code fence');
+  assert.ok(result.endsWith('```'), 'should close the code fence');
+  assert.ok(result.length <= 2000, 'should stay within Discord limit');
+  assert.ok(result.includes('...'), 'should mark truncation');
+});
+
+test('fitDiscordPayload: puts repeat count outside the fence', () => {
+  const result = fitDiscordPayload('boom', 6, true);
+  assert.strictEqual(result, '```boom```\n[5 more entries]');
+  assert.ok(result.length <= 2000);
+});
+
+test('fitDiscordPayload: truncates body to leave room for suffix and fences', () => {
+  const result = fitDiscordPayload('y'.repeat(5000), 12, true);
+  assert.ok(result.startsWith('```'));
+  assert.ok(result.includes('```\n[11 more entries]'));
+  assert.ok(result.endsWith('[11 more entries]'));
+  assert.ok(result.length <= 2000);
+});
+
+test('messageFingerprint: treats timestamps as noise', () => {
+  const a = messageFingerprint('api', 'error', '2026-09-13 00:31:40 +02:00: getaddrinfo EAI_AGAIN');
+  const b = messageFingerprint('api', 'error', '2026-09-13 00:35:01 +02:00: getaddrinfo EAI_AGAIN');
+  assert.strictEqual(a, b, 'same error with different timestamps should match');
+});
+
+test('messageFingerprint: different text does not match', () => {
+  const a = messageFingerprint('api', 'error', 'getaddrinfo EAI_AGAIN');
+  const b = messageFingerprint('api', 'error', 'connection refused');
+  assert.notStrictEqual(a, b);
 });

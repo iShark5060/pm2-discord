@@ -34,7 +34,7 @@
   "homepage": "https://github.com/FranciscoG/pm2-discord",
   "dependencies": {
     "node-fetch": "3.3.2",
-    "pm2": "6.0.14",
+    "pm2": "7.0.0",
     "pmx": "1.6.8",
     "strip-ansi": "7.1.2"
   },

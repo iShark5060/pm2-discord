@@ -1,48 +1,52 @@
 import { log } from './logging.mjs';
 
+const DISCORD_WEBHOOK_HOSTS = new Set([
+  'discord.com',
+  'canary.discord.com',
+  'ptb.discord.com',
+  'discordapp.com',
+]);
+
 /**
  * Validates that a URL is a valid Discord webhook URL.
  * Prevents SSRF attacks by ensuring the URL is HTTPS and from Discord's domain.
  */
-export function isValidDiscordWebhookUrl(url: string | null): boolean {
-	if (typeof url !== 'string' || !url.trim()) {
-		log('error', '"discord_url" is required and is undefined.');
-		log('error', 'Set the Discord URL using the following command:');
-		log('error', 'pm2 set pm2-discord:discord_url <your discord webhook url>');
-		return false;
-	}
+export function isValidDiscordWebhookUrl(url: string | null): url is string {
+  if (typeof url !== 'string' || !url.trim()) {
+    log('error', '"discord_url" is required and is undefined.');
+    log('error', 'Set the Discord URL using the following command:');
+    log('error', 'pm2 set pm2-discord:discord_url <your discord webhook url>');
+    return false;
+  }
 
-	const isTestEnv = process.env['NODE_ENV'] === 'test';
-	if (isTestEnv && url.includes('http://127.0.0.1')) {
-		// Allow localhost URLs in test environment for testing purposes
-		return true;
-	}
+  try {
+    const parsed = new URL(url);
+    const debugEnv = process.env['PM2_DISCORD_DEBUG'];
+    const allowLocal =
+      process.env['NODE_ENV'] === 'test' || debugEnv === '1' || debugEnv?.toLowerCase() === 'true';
 
-	try {
+    if (allowLocal && parsed.hostname === '127.0.0.1') {
+      return true;
+    }
 
-		const parsed = new URL(url);
+    if (parsed.protocol !== 'https:') {
+      log('warn', 'Discord URL must use HTTPS protocol');
+      return false;
+    }
 
-		// Must use HTTPS for security
-		if (parsed.protocol !== 'https:') {
-			log('warn', 'Discord URL must use HTTPS protocol');
-			return false;
-		}
+    if (!DISCORD_WEBHOOK_HOSTS.has(parsed.hostname)) {
+      log('warn', 'Discord URL must be from discord.com or discordapp.com domain');
+      return false;
+    }
 
-		// Must be from Discord's domain
-		if (!parsed.hostname.includes('discord.com') && !parsed.hostname.includes('discordapp.com')) {
-			log('warn', 'Discord URL must be from discord.com or discordapp.com domain');
-			return false;
-		}
+    if (!parsed.pathname || parsed.pathname === '/') {
+      log('warn', 'Discord URL must include the webhook endpoint');
+      return false;
+    }
 
-		// Must have a pathname (webhook endpoint)
-		if (!parsed.pathname || parsed.pathname === '/') {
-			log('warn', 'Discord URL must include the webhook endpoint');
-			return false;
-		}
-
-		return true;
-	} catch (e) {
-		log('warn', 'Invalid Discord URL format');
-		return false;
-	}
+    return true;
+  } catch {
+    log('warn', 'Invalid Discord URL format');
+    return false;
+  }
 }

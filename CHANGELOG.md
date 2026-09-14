@@ -1,6 +1,30 @@
 # Changelog
 
+## 2.0.0
+
+### 2026-09-14
+
+### Breaking Changes
+
+- Require Node.js `>=26` and pnpm 12.
+- Target PM2 7. Older PM2 majors are not supported.
+- Default event flags: `error: true`, `log: false`, `restart: true`. Stdout is off until you enable it. Restarts and stderr go to Discord out of the box.
+
+### Features
+
+- Wrap Discord payloads once at send time and keep the closing code fence when truncating to 2000 characters.
+- Collapse duplicate or similar messages inside a 60 second window (`collapse`, `collapse_seconds`). Repeats become `[N more entries]` instead of a flood after an outage.
+
+### Internal Changes
+
+- Switch the toolchain to pnpm, oxlint, oxfmt, and `pnpm run validate`.
+- Replace `node-fetch` with Node's built-in `fetch`.
+- Drop npm lockfile in favor of `pnpm-lock.yaml`.
+- Release workflow compiles `dist/` onto version tags and floating `v2` / `v2.x` tags.
+- Allowlist Discord webhook hostnames instead of a substring match.
+
 ## 1.0.0
+
 ### 2026-01-28
 
 ### Breaking Changes
@@ -12,10 +36,11 @@
 
 - Implemented requested updates from [this PR](https://github.com/FranciscoG/pm2-discord/pull/6).
   - added a new `format` option, default to `false`, that wraps the message sent to Discord with triple-backticks for multi-line code block.
+
     ```sh
     pm2 set pm2-discord:format true
     ```
-  
+
   - In the payload to the Discord webhook, set the username to be the process name.
 
 - **Rate Limiting Compliance**: Fully implemented Discord's webhook rate limiting (30 requests per 60 seconds)
@@ -24,7 +49,7 @@
   - Handles both route-specific and global rate limits
   - Parses and uses all Discord rate limit headers (`X-RateLimit-*`)
   - Configurable rate limits via `rate_limit_messages` and `rate_limit_window_seconds`
-  
+
 - **Invalid Webhook Detection**: Prevents repeated 404 errors
   - Detects when webhooks are deleted or invalid (404 responses)
   - Automatically stops sending to invalid webhooks
@@ -40,17 +65,20 @@
 - Added proper error handling for network failures and Discord API errors
 
 ## 0.1.2
+
 ### 2020-05-04
 
 Update readme with more accurate instructions
 
 ## 0.1.1
+
 ### 2020-05-04
 
 - Updated dependencies
 - Added Changlelog.md
 
 ## 0.1.0
+
 ### 2017-02-01
 
 Initial release after forking the code from `pm2-discord` and converting it to work with Discord

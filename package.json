@@ -1,46 +1,56 @@
 {
   "name": "pm2-discord",
-  "version": "1.0.0",
-  "description": "A PM2 module to emit events and logs to discord",
-  "main": "dist/index.mjs",
-  "engines": {
-    "node": ">=16.0.0"
+  "version": "2.0.0",
+  "description": "A PM2 module to emit events and logs to Discord",
+  "keywords": [
+    "discord",
+    "pm2"
+  ],
+  "homepage": "https://github.com/iShark5060/pm2-discord",
+  "bugs": {
+    "url": "https://github.com/iShark5060/pm2-discord/issues"
   },
-  "scripts": {
-    "test": "npm run build && NODE_ENV=test node --test tests/unit",
-    "test:integration": "npm run build && NODE_ENV=test node --test tests/integration",
-    "build": "rm -rf dist && tsc",
-    "watch": "tsc -w",
-    "prepublishOnly": "npm run build"
-  },
+  "license": "MIT",
+  "author": "Francisco (https://github.com/FranciscoG)",
   "repository": {
     "type": "git",
-    "url": "https://github.com/FranciscoG/pm2-discord"
+    "url": "git+https://github.com/iShark5060/pm2-discord.git"
   },
-  "keywords": [
-    "pm2",
-    "discord"
+  "files": [
+    "LICENSE",
+    "README.md",
+    "dist"
   ],
-  "author": "Francisco (https://github.com/FranciscoG)",
-  "licenses": [
-    {
-      "type": "MIT",
-      "url": "https://github.com/FranciscoG/pm2-discord/blob/master/LICENSE"
-    }
-  ],
-  "bugs": {
-    "url": "https://github.com/FranciscoG/pm2-discord/issues"
+  "main": "dist/index.mjs",
+  "scripts": {
+    "validate": "node run-quality-checks.mjs",
+    "lint": "oxlint .",
+    "lint:fix": "oxlint --fix .",
+    "format": "oxfmt --write .",
+    "check-format": "oxfmt --check .",
+    "typecheck": "tsc --noEmit",
+    "test": "pnpm run build && node --test \"tests/unit/**/*.mjs\"",
+    "test:integration": "pnpm run build && node --test \"tests/integration/**/*.js\"",
+    "build": "tsc",
+    "watch": "tsc -w",
+    "prepublishOnly": "pnpm run build",
+    "deps": "pnpm dlx npm-check-updates --target newest -u --reject @types/node && pnpm dlx npm-check-updates @types/node --target semver -u",
+    "deps:update": "pnpm update -r --latest && pnpm update @types/node"
   },
-  "homepage": "https://github.com/FranciscoG/pm2-discord",
   "dependencies": {
-    "node-fetch": "3.3.2",
-    "pm2": "6.0.14",
+    "pm2": "^7.0.4",
     "pmx": "1.6.8",
-    "strip-ansi": "7.1.2"
+    "strip-ansi": "^7.2.0"
   },
   "devDependencies": {
-    "@types/axon": "^2.0.5",
-    "@types/node": "^16.0.0",
-    "typescript": "5.9.3"
-  }
+    "@types/node": "^26.5.1",
+    "oxfmt": "^0.68.0",
+    "oxlint": "^1.83.0",
+    "typescript": "^7.0.2"
+  },
+  "engines": {
+    "node": ">=26",
+    "pnpm": ">=12.0.0"
+  },
+  "packageManager": "pnpm@12.4.1"
 }

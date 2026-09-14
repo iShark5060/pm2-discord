@@ -1,5 +1,17 @@
+import {
+  DISCORD_MESSAGE_CHAR_LIMIT,
+  fitDiscordPayload,
+  messageFingerprint,
+  moreEntriesLabel,
+} from './log-utils.mjs';
 import { debug, log } from './logging.mjs';
-import type { DiscordMessage, DiscordRateLimitInfo, MessageQueueConfig, RequestHistoryEntry, SendToDiscord } from './types/index.js';
+import type {
+  DiscordMessage,
+  DiscordRateLimitInfo,
+  MessageQueueConfig,
+  RequestHistoryEntry,
+  SendToDiscord,
+} from './types/index.js';
 
 // Rate limit constants
 // Discord webhooks have a specific limit: 30 requests per 60 seconds = 0.5 req/sec
@@ -11,38 +23,38 @@ const DEFAULT_TICK_INTERVAL_MS = 100;
 // and reduce duplicate message risk in edge cases
 const MAX_RETRY_ATTEMPTS = 5;
 
-// Discord message character limit per message
-// https://discord.com/developers/docs/resources/channel#create-message
-const DISCORD_MESSAGE_CHAR_LIMIT = 2000;
-
 export class MessageQueue {
-  config: MessageQueueConfig
-  messageQueue: DiscordMessage[] = []
-  sender: SendToDiscord
-  requestHistory: RequestHistoryEntry[] = []
-  discordRateLimit: DiscordRateLimitInfo | null = null
-  flushInterval: NodeJS.Timeout | null = null
-  isSending: boolean = false
-  webhookInvalid: boolean = false
+  config: MessageQueueConfig;
+  messageQueue: DiscordMessage[] = [];
+  sender: SendToDiscord;
+  requestHistory: RequestHistoryEntry[] = [];
+  discordRateLimit: DiscordRateLimitInfo | null = null;
+  flushInterval: NodeJS.Timeout | null = null;
+  isSending: boolean = false;
+  webhookInvalid: boolean = false;
 
   // Buffer-related properties
-  bufferTimer: NodeJS.Timeout | null = null
-  currentBuffer: DiscordMessage[] = []
+  bufferTimer: NodeJS.Timeout | null = null;
+  currentBuffer: DiscordMessage[] = [];
 
   // Backoff timeout for rate limit delays
-  backoffTimeout: NodeJS.Timeout | null = null
+  backoffTimeout: NodeJS.Timeout | null = null;
 
   // Throttle settings (calculated from config)
-  requestsPerTick: number
-  tickIntervalMs: number
+  requestsPerTick: number;
+  tickIntervalMs: number;
 
   // Track if we're in a rate-limited backoff period
-  rateLimitedUntil: number = 0
+  rateLimitedUntil: number = 0;
 
-  characterCount: number = 0
+  characterCount: number = 0;
 
   // Shutdown state to prevent new operations during graceful shutdown
-  isShuttingDown: boolean = false
+  isShuttingDown: boolean = false;
+
+  recentSent: Map<string, { at: number; template: DiscordMessage }> = new Map();
+  pendingMore: Map<string, { extra: number; template: DiscordMessage; timer: NodeJS.Timeout }> =
+    new Map();
 
   constructor(config: MessageQueueConfig, sender: SendToDiscord) {
     this.config = config;
@@ -81,14 +93,17 @@ export class MessageQueue {
       // Formula: (requests/sec) * (tick_duration_sec) = requests/tick
       // Example: 2 req/sec * 0.1 sec = 0.2 requests/tick (min 1)
       this.tickIntervalMs = DEFAULT_TICK_INTERVAL_MS;
-      this.requestsPerTick = Math.max(1, Math.floor(safeRatePerSecond * (this.tickIntervalMs / 1000)));
+      this.requestsPerTick = Math.max(
+        1,
+        Math.floor(safeRatePerSecond * (this.tickIntervalMs / 1000)),
+      );
     }
   }
 
   /**
    * Get the effective rate in requests per second.
    * Useful for testing and debugging rate limit calculations.
-   * 
+   *
    * @returns Effective rate limit in requests per second
    * @example
    * // With default config (30 messages per 60 seconds):
@@ -101,7 +116,7 @@ export class MessageQueue {
   /**
    * Get the time window for rate limiting in milliseconds.
    * Useful for testing and debugging rate limit window calculations.
-   * 
+   *
    * @returns Rate limit window duration in milliseconds
    * @example
    * // With default 60 second window:
@@ -115,7 +130,7 @@ export class MessageQueue {
   /**
    * Checks if webhook has been marked as invalid (404 response).
    * When a webhook returns 404, it's marked invalid to prevent repeated failed requests.
-   * 
+   *
    * @returns true if webhook is invalid and should not be used, false otherwise
    */
   isWebhookInvalid(): boolean {
@@ -125,13 +140,13 @@ export class MessageQueue {
   /**
    * Records a request in the history for rate limit tracking.
    * Used for testing and monitoring request patterns.
-   * 
+   *
    * @param timestamp - Optional timestamp in milliseconds. Defaults to Date.now()
    */
   recordRequest(timestamp?: number): void {
     this.requestHistory.push({
       timestamp: timestamp || Date.now(),
-      messageCount: 1
+      messageCount: 1,
     });
   }
 
@@ -143,15 +158,15 @@ export class MessageQueue {
   cleanupRequestHistory(): void {
     const now = Date.now();
     const window = this.getEffectiveWindow();
-    this.requestHistory = this.requestHistory.filter(entry => {
-      return (now - entry.timestamp) < window;
+    this.requestHistory = this.requestHistory.filter((entry) => {
+      return now - entry.timestamp < window;
     });
   }
 
   /**
    * Returns the complete request history for monitoring and testing.
    * History includes timestamps of all requests within the rate limit window.
-   * 
+   *
    * @returns Array of request history entries with timestamps
    */
   getRequestHistory(): RequestHistoryEntry[] {
@@ -161,7 +176,7 @@ export class MessageQueue {
   /**
    * Checks if a request can be sent immediately (not in rate limit backoff).
    * Returns false when Discord has rate limited us and we're waiting for retry_after to expire.
-   * 
+   *
    * @returns true if we can send now, false if we're in backoff period
    */
   canSendNow(): boolean {
@@ -171,12 +186,12 @@ export class MessageQueue {
   /**
    * Calculates delay in milliseconds until next send is allowed.
    * Returns 0 if we can send immediately, otherwise returns remaining backoff time.
-   * 
+   *
    * @returns Milliseconds to wait before next send attempt (0 if ready now)
    * @example
    * // If rate limited for 2 more seconds:
    * queue.getDelayUntilNextSend() // => 2000
-   * 
+   *
    * // If ready to send:
    * queue.getDelayUntilNextSend() // => 0
    */
@@ -186,6 +201,134 @@ export class MessageQueue {
       return 0;
     }
     return this.rateLimitedUntil - now;
+  }
+
+  collapseEnabled(): boolean {
+    return this.config.collapse ?? true;
+  }
+
+  collapseWindowMs(): number {
+    return (this.config.collapse_seconds ?? 60) * 1000;
+  }
+
+  formatEnabled(): boolean {
+    return this.config.format ?? true;
+  }
+
+  bodyLimit(): number {
+    // Leave room for ``` fences and a "[N more entries]" suffix outside the fence.
+    return DISCORD_MESSAGE_CHAR_LIMIT - (this.formatEnabled() ? 6 : 0) - 24;
+  }
+
+  fingerprintOf(message: DiscordMessage): string {
+    return (
+      message._fingerprint ?? messageFingerprint(message.name, message.event, message.description)
+    );
+  }
+
+  findUnsent(fingerprint: string): DiscordMessage | undefined {
+    return (
+      this.currentBuffer.find((msg) => msg._fingerprint === fingerprint) ??
+      this.messageQueue.find((msg) => msg._fingerprint === fingerprint)
+    );
+  }
+
+  descriptionWithCount(message: DiscordMessage): string {
+    const extra = (message._repeatCount ?? 1) - 1;
+    const body = message.description ?? '';
+    if (extra < 1) {
+      return body;
+    }
+    return `${body}\n${moreEntriesLabel(extra)}`;
+  }
+
+  prepareForSend(message: DiscordMessage): DiscordMessage {
+    return {
+      ...message,
+      description: fitDiscordPayload(
+        message.description ?? '',
+        message._repeatCount ?? 1,
+        this.formatEnabled(),
+      ),
+    };
+  }
+
+  recordSent(messages: DiscordMessage[]): void {
+    const now = Date.now();
+    for (const message of messages) {
+      const fingerprint = this.fingerprintOf(message);
+      this.recentSent.set(fingerprint, {
+        at: now,
+        template: {
+          name: message.name,
+          event: message.event,
+          description: message.description,
+          timestamp: message.timestamp,
+        },
+      });
+    }
+  }
+
+  flushPendingMore(fingerprint: string): void {
+    const pending = this.pendingMore.get(fingerprint);
+    if (!pending) {
+      return;
+    }
+    this.pendingMore.delete(fingerprint);
+    clearTimeout(pending.timer);
+    if (pending.extra < 1) {
+      return;
+    }
+    this.messageQueue.push({
+      name: pending.template.name,
+      event: pending.template.event,
+      description: pending.template.description,
+      timestamp: Math.floor(Date.now() / 1000),
+      _repeatCount: pending.extra + 1,
+      _fingerprint: fingerprint,
+    });
+    if (!this.isShuttingDown) {
+      this.startInterval();
+    }
+  }
+
+  tryCollapse(message: DiscordMessage): boolean {
+    if (!this.collapseEnabled()) {
+      return false;
+    }
+
+    const fingerprint = this.fingerprintOf(message);
+    message._fingerprint = fingerprint;
+    const now = Date.now();
+    const windowMs = this.collapseWindowMs();
+
+    const unsent = this.findUnsent(fingerprint);
+    if (unsent) {
+      unsent._repeatCount = (unsent._repeatCount ?? 1) + 1;
+      return true;
+    }
+
+    const recent = this.recentSent.get(fingerprint);
+    if (recent && now - recent.at < windowMs) {
+      const existing = this.pendingMore.get(fingerprint);
+      if (existing) {
+        existing.extra += 1;
+        return true;
+      }
+      const remaining = Math.max(0, windowMs - (now - recent.at));
+      const pending = {
+        extra: 1,
+        template: recent.template,
+        timer: setTimeout(() => {
+          this.flushPendingMore(fingerprint);
+        }, remaining),
+      };
+      this.pendingMore.set(fingerprint, pending);
+      return true;
+    }
+
+    message._repeatCount = 1;
+    return false;
   }
 
   /**
@@ -236,7 +379,8 @@ export class MessageQueue {
       this.cleanupRequestHistory();
 
       // Send to Discord
-      const result = await this.sender(messagesToSend, this.config.discord_url);
+      const prepared = messagesToSend.map((msg) => this.prepareForSend(msg));
+      const result = await this.sender(prepared, this.config.discord_url);
 
       // Update Discord rate limit info if provided
       if (result.rateLimitInfo) {
@@ -255,10 +399,10 @@ export class MessageQueue {
       // Handle rate limit response - enter backoff period
       if (result.rateLimited && result.retryAfter) {
         log('log', `Rate limited by Discord. Backing off for ${result.retryAfter}s`);
-        this.rateLimitedUntil = Date.now() + (result.retryAfter * 1000);
+        this.rateLimitedUntil = Date.now() + result.retryAfter * 1000;
         // Put messages back at front of queue for retry (if not exceeding max attempts)
         // Track retry attempts to prevent infinite loops in edge cases
-        messagesToSend.forEach(msg => {
+        messagesToSend.forEach((msg) => {
           msg._retryAttempts = (msg._retryAttempts ?? 0) + 1;
           if (msg._retryAttempts <= MAX_RETRY_ATTEMPTS) {
             this.messageQueue.unshift(msg);
@@ -266,15 +410,20 @@ export class MessageQueue {
             log('warn', `Message exceeded max retry attempts (${MAX_RETRY_ATTEMPTS}), discarding`);
           }
         });
+      } else if (result.success) {
+        this.recordSent(messagesToSend);
       } else if (!result.success) {
         // Handle other errors - retry with attempt tracking
-        messagesToSend.forEach(msg => {
+        messagesToSend.forEach((msg) => {
           msg._retryAttempts = (msg._retryAttempts ?? 0) + 1;
           if (msg._retryAttempts <= MAX_RETRY_ATTEMPTS) {
             // Put failed messages back for retry
             this.messageQueue.unshift(msg);
           } else {
-            log('warn', `Message exceeded max retry attempts (${MAX_RETRY_ATTEMPTS}), discarding: ${result.error}`);
+            log(
+              'warn',
+              `Message exceeded max retry attempts (${MAX_RETRY_ATTEMPTS}), discarding: ${result.error}`,
+            );
           }
         });
       }
@@ -295,7 +444,7 @@ export class MessageQueue {
     }
 
     this.flushInterval = setInterval(() => {
-      this.processTick().catch(err => {
+      this.processTick().catch((err) => {
         log('error', 'Error in processTick:', err);
       });
     }, this.tickIntervalMs);
@@ -328,6 +477,9 @@ export class MessageQueue {
    */
   beginShutdown(): void {
     this.isShuttingDown = true;
+    for (const fingerprint of this.pendingMore.keys()) {
+      this.flushPendingMore(fingerprint);
+    }
     this.stopInterval();
   }
 
@@ -344,16 +496,19 @@ export class MessageQueue {
       return;
     }
 
-    // Combine all buffered messages into one
-    const combinedMessage: DiscordMessage = {
-      name: this.currentBuffer[0].name,
-      event: this.currentBuffer[0].event,
-      description: this.currentBuffer.map(m => m.description || '').join('\n'),
-      timestamp: this.currentBuffer[0].timestamp
-    };
-
-    // Add combined message to the queue
-    this.messageQueue.push(combinedMessage);
+    // Combine all buffered messages into one. A single unique message keeps its
+    // object identity so later duplicates can still increment _repeatCount.
+    if (this.currentBuffer.length === 1) {
+      this.messageQueue.push(this.currentBuffer[0]);
+    } else {
+      const combinedMessage: DiscordMessage = {
+        name: this.currentBuffer[0].name,
+        event: this.currentBuffer[0].event,
+        description: this.currentBuffer.map((m) => this.descriptionWithCount(m)).join('\n'),
+        timestamp: this.currentBuffer[0].timestamp,
+      };
+      this.messageQueue.push(combinedMessage);
+    }
 
     // Clear the buffer
     this.currentBuffer = [];
@@ -367,11 +522,14 @@ export class MessageQueue {
   /**
    * Checks if the buffer should be flushed immediately.
    * Flushes when character count reaches Discord's 2000 char limit or queue_max messages.
-   * 
+   *
    * @returns true if buffer should flush now, false otherwise
    */
   shouldFlushBuffer(): boolean {
-    return this.characterCount >= DISCORD_MESSAGE_CHAR_LIMIT || this.currentBuffer.length >= (this.config.queue_max ?? 100)
+    return (
+      this.characterCount >= this.bodyLimit() ||
+      this.currentBuffer.length >= (this.config.queue_max ?? 100)
+    );
   }
 
   /**
@@ -379,9 +537,9 @@ export class MessageQueue {
    * If buffering is enabled, messages are combined within buffer_seconds window.
    * If buffering is disabled, messages are added directly to the processing queue.
    * Automatically handles character limits and truncates oversized messages.
-   * 
+   *
    * During shutdown, new messages are rejected with a warning.
-   * 
+   *
    * @param message - Discord message to add (will be mutated if truncation needed)
    */
   addMessage(message: DiscordMessage): void {
@@ -394,14 +552,19 @@ export class MessageQueue {
     const bufferSeconds = this.config.buffer_seconds ?? 1;
 
     debug('Buffer is set to:', bufferEnabled, 'Buffer seconds:', bufferSeconds);
-    let newMessageLength = message.description?.length ?? 0;
 
-    // Truncate single messages that exceed the limit
-    if (newMessageLength > DISCORD_MESSAGE_CHAR_LIMIT) {
-      log('warn', 'Single message exceeds 2000 character limit, truncating...');
-      message.description = message.description?.substring(0, DISCORD_MESSAGE_CHAR_LIMIT - 3) + '...';
-      // Recalculate length after truncation
-      newMessageLength = message.description?.length ?? 0;
+    if (this.tryCollapse(message)) {
+      return;
+    }
+
+    let newMessageLength = message.description?.length ?? 0;
+    const bodyLimit = this.bodyLimit();
+
+    if (newMessageLength > bodyLimit) {
+      log('warn', 'Single message exceeds Discord character limit, truncating...');
+      message.description =
+        (message.description ?? '').slice(0, Math.max(0, bodyLimit - 3)) + '...';
+      newMessageLength = message.description.length;
     }
 
     if (bufferEnabled) {
@@ -410,8 +573,11 @@ export class MessageQueue {
       // For current buffer of size N, adding 1 message means (N) newlines between all messages
       const newlinesThatWillExist = this.currentBuffer.length; // Each message except first has a newline before it
 
-      if (this.characterCount + newlinesThatWillExist + newMessageLength > DISCORD_MESSAGE_CHAR_LIMIT) {
-        log('log', 'Adding this message would exceed 2000 character limit, flushing current buffer first.');
+      if (this.characterCount + newlinesThatWillExist + newMessageLength > this.bodyLimit()) {
+        log(
+          'log',
+          'Adding this message would exceed 2000 character limit, flushing current buffer first.',
+        );
         this.flushBuffer();
       }
 
@@ -457,7 +623,7 @@ export class MessageQueue {
    * Triggers immediate processing of queued messages (for testing).
    * Calls processTick once to send up to requestsPerTick messages.
    * Used primarily in unit tests to synchronously process the queue.
-   * 
+   *
    * @returns Promise that resolves when the tick completes
    */
   async flush(): Promise<void> {

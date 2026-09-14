@@ -1,0 +1,122 @@
+name: Release
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: 26
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build-and-tag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+
+      - name: Record source commit
+        id: source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Setup pnpm and Node.js
+        uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b # v2.1.0
+        with:
+          runtime: node@${{ env.NODE_VERSION }}
+          cache: true
+          require-lockfile: true
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Verify build
+        run: node --check dist/index.mjs
+
+      - name: Attest dist/index.mjs
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/index.mjs
+
+      - name: Publish dist to release tag
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+          PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f dist
+          if git diff --cached --quiet; then
+            echo "dist is unchanged"
+          else
+            git commit -m "Automatic compilation"
+          fi
+          git push origin "HEAD:refs/tags/${TAG}" --force
+
+          if [ "$PRERELEASE" = "true" ]; then
+            echo "Skipping floating version tags for prerelease"
+            exit 0
+          fi
+
+          if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            MAJOR="${TAG%%.*}"
+            REST="${TAG#*.}"
+            MINOR="${REST%%.*}"
+            git tag -f "$MAJOR"
+            git tag -f "$MAJOR.$MINOR"
+            git push origin "refs/tags/${MAJOR}" "refs/tags/${MAJOR}.${MINOR}" --force
+          else
+            echo "Skipping floating version tags: ${TAG} is not vMAJOR.MINOR.PATCH"
+          fi
+
+      - name: Push source tag
+        shell: bash
+        run: |
+          TAGNAME="${{ github.event.release.tag_name }}-src"
+          git tag "$TAGNAME" "${{ steps.source.outputs.sha }}"
+          git push origin "$TAGNAME"
+
+  notify:
+    needs: build-and-tag
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+
+    steps:
+      - name: Resolve workflow conclusion
+        uses: actions/github-script@v9
+        id: conclusion
+        with:
+          script: |
+            const { data: jobs } = await github.rest.actions.listJobsForWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+            })
+            const conclusions = jobs.jobs.map(j => j.conclusion).filter(Boolean)
+            const priority = ['failure', 'timed_out', 'cancelled', 'action_required', 'neutral', 'success', 'skipped', 'stale']
+            const conclusion = priority.find(p => conclusions.includes(p)) ?? (conclusions.length ? conclusions[0] : 'success')
+            core.setOutput('conclusion', conclusion)
+
+      - name: Send Discord notification
+        uses: iShark5060/actions-discord-status@v1
+        if: always()
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK }}
+          status: ${{ steps.conclusion.outputs.conclusion }}
+          title: ${{ github.workflow }} - conclusion
+          content: '<@${{ secrets.DISCORD_USERID }}>'
+          ack_no_webhook: true

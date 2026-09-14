@@ -1,4 +1,12 @@
-node_modules
 .DS_Store
-.jshintrc
+/.idea
+/node_modules
+/dist
+*.log
+coverage/
+.nyc_output/
 .env
+.env.keys
+.env.local
+package-lock.json
+yarn.lock

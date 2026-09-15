@@ -118,5 +118,6 @@ jobs:
           webhook: ${{ secrets.DISCORD_WEBHOOK }}
           status: ${{ steps.conclusion.outputs.conclusion }}
           title: ${{ github.workflow }} - conclusion
+          mention_on: failure
           content: '<@${{ secrets.DISCORD_USERID }}>'
           ack_no_webhook: true

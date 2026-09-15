@@ -3,6 +3,7 @@ import { test } from 'node:test';
 
 import {
   checkProcessName,
+  DISCORD_EMBED_DESCRIPTION_LIMIT,
   fitDiscordPayload,
   messageFingerprint,
   parseIncomingLog,
@@ -136,14 +137,14 @@ test('fitDiscordPayload: keeps closing fence when truncating a code block', () =
   const result = fitDiscordPayload(body, 1, true);
   assert.ok(result.startsWith('```'), 'should open a code fence');
   assert.ok(result.endsWith('```'), 'should close the code fence');
-  assert.ok(result.length <= 2000, 'should stay within Discord limit');
+  assert.ok(result.length <= DISCORD_EMBED_DESCRIPTION_LIMIT, 'should stay within Discord embed description limit');
   assert.ok(result.includes('...'), 'should mark truncation');
 });
 
 test('fitDiscordPayload: puts repeat count outside the fence', () => {
   const result = fitDiscordPayload('boom', 6, true);
   assert.strictEqual(result, '```boom```\n[5 more entries]');
-  assert.ok(result.length <= 2000);
+  assert.ok(result.length <= DISCORD_EMBED_DESCRIPTION_LIMIT);
 });
 
 test('fitDiscordPayload: truncates body to leave room for suffix and fences', () => {
@@ -151,7 +152,7 @@ test('fitDiscordPayload: truncates body to leave room for suffix and fences', ()
   assert.ok(result.startsWith('```'));
   assert.ok(result.includes('```\n[11 more entries]'));
   assert.ok(result.endsWith('[11 more entries]'));
-  assert.ok(result.length <= 2000);
+  assert.ok(result.length <= DISCORD_EMBED_DESCRIPTION_LIMIT);
 });
 
 test('messageFingerprint: treats timestamps as noise', () => {

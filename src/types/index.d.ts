@@ -1,3 +1,10 @@
+export interface DiscordEmbed {
+  title: string;
+  description?: string;
+  color: number;
+  timestamp: string;
+}
+
 export interface DiscordMessage {
   name: string;
   event: string;
@@ -104,6 +111,8 @@ export interface MessageQueueConfig {
   collapse?: boolean;
   collapse_seconds?: number;
   format?: boolean;
+  /** Seconds between Send failed notice retries. Not a pm2 set key. Default 60. */
+  delivery_retry_seconds?: number;
 }
 
 /**

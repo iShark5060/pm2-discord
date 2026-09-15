@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { MessageQueue } from '../../dist/message-queue.mjs';
+import { MessageQueue, SEND_FAILED_DESCRIPTION, SEND_FAILED_EVENT } from '../../dist/message-queue.mjs';
 
 // ===== MESSAGE QUEUE THROTTLING TESTS =====
 
@@ -482,12 +482,22 @@ test('MessageQueue - flushes buffer when character limit exceeded', async () => 
 
   const queue = new MessageQueue(config, mockSender);
 
-  // Add messages that will exceed 2000 chars
-  queue.addMessage({ name: 'app', event: 'log', description: 'x'.repeat(1500), timestamp: Date.now() });
+  // Add messages that will exceed the embed description limit
+  const limit = queue.bodyLimit();
+  queue.addMessage({
+    name: 'app',
+    event: 'log',
+    description: 'x'.repeat(Math.floor(limit * 0.7)),
+    timestamp: Date.now(),
+  });
   assert.strictEqual(queue.currentBuffer.length, 1, 'first message should be buffered');
 
-  // This message would push us over 2000, should trigger flush of current buffer first
-  queue.addMessage({ name: 'app', event: 'log', description: 'y'.repeat(800), timestamp: Date.now() });
+  queue.addMessage({
+    name: 'app',
+    event: 'log',
+    description: 'y'.repeat(Math.floor(limit * 0.5)),
+    timestamp: Date.now(),
+  });
 
   // After attempting to add the second message, first buffer should have been flushed
   assert.ok(queue.currentBuffer.length <= 1, 'current buffer should contain only the new message');
@@ -495,7 +505,7 @@ test('MessageQueue - flushes buffer when character limit exceeded', async () => 
   queue.stopInterval();
 });
 
-test('MessageQueue - truncates single messages exceeding 2000 characters', () => {
+test('MessageQueue - truncates single messages exceeding the embed description limit', () => {
   let sentMessages = [];
   const mockSender = async (messages) => {
     sentMessages = messages;
@@ -511,11 +521,12 @@ test('MessageQueue - truncates single messages exceeding 2000 characters', () =>
   };
 
   const queue = new MessageQueue(config, mockSender);
+  const limit = queue.bodyLimit();
 
   const oversizedMessage = {
     name: 'app',
     event: 'log',
-    description: 'x'.repeat(3000),
+    description: 'x'.repeat(limit + 1000),
     timestamp: Date.now(),
   };
 
@@ -524,7 +535,10 @@ test('MessageQueue - truncates single messages exceeding 2000 characters', () =>
   // The message was truncated and flushed to the messageQueue, so check there
   assert.ok(sentMessages.length === 0, 'message should not have been sent yet (still in queue)');
   assert.ok(queue.messageQueue.length === 1, 'truncated message should be in message queue');
-  assert.ok(queue.messageQueue[0].description.length <= 2000, 'message should be truncated to 2000 chars or less');
+  assert.ok(
+    queue.messageQueue[0].description.length <= limit,
+    'message should be truncated to the embed description limit or less',
+  );
 
   queue.stopInterval();
 });
@@ -545,11 +559,10 @@ test('MessageQueue - accounts for newlines when checking character limit', async
   };
 
   const queue = new MessageQueue(config, mockSender);
+  const half = Math.floor(queue.bodyLimit() / 2) + 10;
 
-  // Add message that would exceed limit when newline is added
-  // 1950 + 1950 = 3900, plus 1 newline = 3901 chars total
-  queue.addMessage({ name: 'app', event: 'log', description: 'a'.repeat(1950), timestamp: Date.now() });
-  queue.addMessage({ name: 'app', event: 'log', description: 'b'.repeat(1950), timestamp: Date.now() });
+  queue.addMessage({ name: 'app', event: 'log', description: 'a'.repeat(half), timestamp: Date.now() });
+  queue.addMessage({ name: 'app', event: 'log', description: 'b'.repeat(half), timestamp: Date.now() });
 
   // Check that messages were split (second was not added to buffer due to newline accounting)
   // After the second addMessage, the first should have been flushed
@@ -572,14 +585,12 @@ test('MessageQueue - shouldFlushBuffer triggers at character limit', () => {
   };
 
   const queue = new MessageQueue(config, mockSender);
+  const almost = queue.bodyLimit() - 1;
 
-  // Add message that's almost at limit
-  queue.addMessage({ name: 'app', event: 'log', description: 'x'.repeat(1999), timestamp: Date.now() });
+  queue.addMessage({ name: 'app', event: 'log', description: 'x'.repeat(almost), timestamp: Date.now() });
 
-  // shouldFlushBuffer should not trigger yet (1999 < 2000)
-  assert.strictEqual(queue.shouldFlushBuffer(), false, 'should not flush at 1999 chars');
+  assert.strictEqual(queue.shouldFlushBuffer(), false, 'should not flush just under the limit');
 
-  // Add one more char to hit exactly 2000
   queue.addMessage({ name: 'app', event: 'log', description: 'y'.repeat(1), timestamp: Date.now() });
 
   // Now it should flush (first message at 1999, adding 1 more would exceed)
@@ -619,7 +630,10 @@ test('MessageQueue - combines messages with newlines without exceeding limit', a
   // The combined message should be under 2000
   if (sentMessages.length > 0) {
     const combinedLength = sentMessages[0].description.length;
-    assert.ok(combinedLength <= 2000, `combined message should be under 2000 chars (got ${combinedLength})`);
+    assert.ok(
+      combinedLength <= queue.bodyLimit() + 24 + 6,
+      `combined message should be under the embed description limit (got ${combinedLength})`,
+    );
   } else {
     assert.ok(false, 'should have sent messages');
   }
@@ -733,13 +747,13 @@ test('MessageQueue - truncated code block still closes', async () => {
     mockSender,
   );
 
-  queue.addMessage({ name: 'api', event: 'error', description: 'stack\n'.repeat(400), timestamp: Date.now() });
+  queue.addMessage({ name: 'api', event: 'error', description: 'stack\n'.repeat(800), timestamp: Date.now() });
   await queue.flush();
 
   assert.strictEqual(sent.length, 1);
   assert.ok(sent[0].description.startsWith('```'));
   assert.ok(sent[0].description.endsWith('```'));
-  assert.ok(sent[0].description.length <= 2000);
+  assert.ok(sent[0].description.length <= 4096);
 
   queue.stopInterval();
 });
@@ -764,7 +778,7 @@ test('MessageQueue - holds duplicates after send until collapse window ends', as
     mockSender,
   );
 
-  queue.addMessage({ name: 'api', event: 'error', description: 'boom', timestamp: Date.now() });
+  queue.addMessage({ name: 'api', event: 'error', description: 'boom', timestamp: 1_700_000_000 });
   await queue.flush();
   assert.strictEqual(sent.length, 1);
 
@@ -778,6 +792,103 @@ test('MessageQueue - holds duplicates after send until collapse window ends', as
 
   assert.strictEqual(sent.length, 2, 'should flush the extra count after the window');
   assert.ok(sent[1].description.includes('[2 more entries]'));
+  assert.equal(sent[1].timestamp, 1_700_000_000, 'collapse follow-up should keep the original event time');
+
+  queue.stopInterval();
+});
+
+test('MessageQueue - stamps ingest time when the log has no clock', () => {
+  const queue = new MessageQueue(
+    {
+      discord_url: 'https://test.webhook',
+      buffer: false,
+      collapse: false,
+      rate_limit_messages: 30,
+      rate_limit_window_seconds: 1,
+    },
+    async () => ({ success: true, rateLimitInfo: {} }),
+  );
+
+  const before = Math.floor(Date.now() / 1000);
+  const message = { name: 'api', event: 'error', description: 'boom', timestamp: null };
+  queue.addMessage(message);
+  const after = Math.floor(Date.now() / 1000);
+
+  assert.ok(message.timestamp >= before && message.timestamp <= after);
+
+  const kept = { name: 'api', event: 'error', description: 'later', timestamp: 1_700_000_000 };
+  queue.addMessage(kept);
+  assert.equal(kept.timestamp, 1_700_000_000);
+
+  queue.stopInterval();
+});
+
+test('MessageQueue - drops the backlog after retries and posts Send failed', async () => {
+  const sent = [];
+  const mockSender = async (messages) => {
+    sent.push(...messages);
+    if (messages[0]?.event === SEND_FAILED_EVENT) {
+      return { success: true, rateLimitInfo: {} };
+    }
+    return { success: false, error: 'offline', rateLimitInfo: {} };
+  };
+
+  const queue = new MessageQueue(
+    {
+      discord_url: 'https://test.webhook',
+      buffer: false,
+      collapse: false,
+      format: false,
+      delivery_retry_seconds: 0,
+      rate_limit_messages: 30,
+      rate_limit_window_seconds: 1,
+    },
+    mockSender,
+  );
+
+  queue.addMessage({ name: 'a', event: 'error', description: 'down', timestamp: 1 });
+  queue.addMessage({ name: 'b', event: 'error', description: 'down', timestamp: 1 });
+
+  for (let i = 0; i < 6; i++) {
+    await queue.flush();
+  }
+
+  assert.equal(queue.messageQueue.length, 0);
+  assert.ok(queue.sendFailedMessage);
+  assert.equal(queue.sendFailedMessage.event, SEND_FAILED_EVENT);
+
+  queue.addMessage({ name: 'c', event: 'error', description: 'later', timestamp: 1 });
+  assert.equal(queue.messageQueue.length, 0, 'new events should drop while Send failed is pending');
+
+  await queue.flush();
+
+  assert.equal(sent.at(-1)?.event, SEND_FAILED_EVENT);
+  assert.equal(sent.at(-1)?.description, SEND_FAILED_DESCRIPTION);
+  assert.equal(queue.sendFailedMessage, null);
+
+  queue.addMessage({ name: 'd', event: 'error', description: 'back', timestamp: 1 });
+  assert.equal(queue.messageQueue.length, 1, 'events should queue again after the notice lands');
+
+  queue.stopInterval();
+});
+
+test('MessageQueue - does not arm Send failed on 429', async () => {
+  const queue = new MessageQueue(
+    {
+      discord_url: 'https://test.webhook',
+      buffer: false,
+      delivery_retry_seconds: 0,
+      rate_limit_messages: 10,
+      rate_limit_window_seconds: 1,
+    },
+    async () => ({ success: false, rateLimited: true, retryAfter: 2, rateLimitInfo: {} }),
+  );
+
+  queue.addMessage({ name: 'app', event: 'log', description: 'msg', timestamp: 1 });
+  await queue.flush();
+
+  assert.equal(queue.sendFailedMessage, null);
+  assert.equal(queue.messageQueue.length, 1);
 
   queue.stopInterval();
 });

@@ -2,8 +2,14 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { DISCORD_EMBED_TITLE_LIMIT, DISCORD_MAX_EMBEDS } from './log-utils.mjs';
 import { debug, log } from './logging.mjs';
-import type { DiscordMessage, DiscordRateLimitInfo, SendToDiscordResult } from './types/index.js';
+import type {
+  DiscordEmbed,
+  DiscordMessage,
+  DiscordRateLimitInfo,
+  SendToDiscordResult,
+} from './types/index.js';
 
 // Get version from package.json
 const __dirname = join(fileURLToPath(import.meta.url), '..');
@@ -69,6 +75,61 @@ export function getUserName(messages: DiscordMessage[]): string {
   return Array.from(names).join(', ') || 'PM2 Discord Bot';
 }
 
+export const EVENT_EMBED_STYLES: Record<string, { title: string; color: number }> = {
+  log: { title: 'Log', color: 0x0366d6 },
+  error: { title: 'Error', color: 0xcb2431 },
+  exception: { title: 'Exception', color: 0xcb2431 },
+  kill: { title: 'Kill', color: 0x6c757d },
+  restart: { title: 'Restart', color: 0xdbab09 },
+  'restart overlimit': { title: 'Restart overlimit', color: 0xcb2431 },
+  send_failed: { title: 'Send failed', color: 0xdbab09 },
+  stop: { title: 'Stop', color: 0x95999c },
+  delete: { title: 'Delete', color: 0x95999c },
+  exit: { title: 'Exit', color: 0x95999c },
+  start: { title: 'Start', color: 0x28a745 },
+  online: { title: 'Online', color: 0x28a745 },
+};
+
+export function eventEmbedStyle(event: string): { title: string; color: number } {
+  const known = EVENT_EMBED_STYLES[event];
+  if (known) {
+    return known;
+  }
+  const title = event.length > 0 ? event.charAt(0).toUpperCase() + event.slice(1) : 'Event';
+  return { title: title.slice(0, DISCORD_EMBED_TITLE_LIMIT), color: 0x6c757d };
+}
+
+export function embedTimestamp(
+  unixSeconds: number | null | undefined,
+  sentAtMs = Date.now(),
+): string {
+  if (typeof unixSeconds === 'number' && Number.isFinite(unixSeconds) && unixSeconds > 0) {
+    return new Date(unixSeconds * 1000).toISOString();
+  }
+  return new Date(sentAtMs).toISOString();
+}
+
+export function buildWebhookPayload(
+  messages: DiscordMessage[],
+  sentAtMs = Date.now(),
+): { username: string; embeds: DiscordEmbed[] } {
+  return {
+    username: getUserName(messages),
+    embeds: messages.slice(0, DISCORD_MAX_EMBEDS).map((msg) => {
+      const { title, color } = eventEmbedStyle(msg.event);
+      const embed: DiscordEmbed = {
+        title,
+        color,
+        timestamp: embedTimestamp(msg.timestamp, sentAtMs),
+      };
+      if (msg.description) {
+        embed.description = msg.description;
+      }
+      return embed;
+    }),
+  };
+}
+
 /**
  * Send messages to Discord's Incoming Webhook with rate limit handling
  */
@@ -93,12 +154,7 @@ export async function sendToDiscord(
     };
   }
 
-  // The JSON payload to send to the Webhook
-  const payload = {
-    content: messages.map((msg) => msg.description || '').join('\n'),
-    // because multiple messages from multiple processes can be batched, set username to combined names
-    username: getUserName(messages),
-  };
+  const payload = buildWebhookPayload(messages);
 
   // Options for the post request
   const options = {

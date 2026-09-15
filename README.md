@@ -5,7 +5,7 @@
 ![Node](https://img.shields.io/badge/Node-%3E%3D26-339933?logo=node.js&logoColor=white&style=flat-square)
 ![TypeScript](https://img.shields.io/badge/TypeScript-7.x-3178C6?logo=typescript&logoColor=white&style=flat-square)
 
-A PM2 module that posts process events and logs to a Discord webhook.
+A PM2 module that posts process events and logs to Discord as webhook embeds.
 
 This is a maintained fork of [FranciscoG/pm2-discord](https://github.com/FranciscoG/pm2-discord), itself based on [mattpker/pm2-slack](https://github.com/mattpker/pm2-slack). I run it against PM2 7 on Node 26.
 
@@ -71,17 +71,17 @@ Stdout is noisy on most apps, so `log` is off until you ask for it. Restarts and
 
 ## Options
 
-| option                    | type                   | description                                                          | default |
-| ------------------------- | ---------------------- | -------------------------------------------------------------------- | ------- |
-| process_name              | `string` \| `string[]` | Only forward events from this process, or list of processes          | `null`  |
-| buffer                    | `boolean`              | Concatenate messages before sending. See [Buffering](#buffering)     | `true`  |
-| buffer_seconds            | `number`               | How long to wait before flushing a buffer. Min `1`, max `5`          | `1`     |
-| queue_max                 | `number`               | Flush when this many messages are buffered. Min `10`, max `100`      | `100`   |
-| collapse                  | `boolean`              | Merge duplicate or similar messages in a time window                 | `true`  |
-| collapse_seconds          | `number`               | Window for that merge. Min `1`, max `300`                            | `60`    |
-| rate_limit_messages       | `number`               | Max webhook posts inside the rate-limit window                       | `30`    |
-| rate_limit_window_seconds | `number`               | Rate-limit window in seconds                                         | `60`    |
-| format                    | `boolean`              | Wrap the payload in triple backticks so Discord renders a code block | `true`  |
+| option                    | type                   | description                                                                    | default |
+| ------------------------- | ---------------------- | ------------------------------------------------------------------------------ | ------- |
+| process_name              | `string` \| `string[]` | Only forward events from this process, or list of processes                    | `null`  |
+| buffer                    | `boolean`              | Concatenate messages before sending. See [Buffering](#buffering)               | `true`  |
+| buffer_seconds            | `number`               | How long to wait before flushing a buffer. Min `1`, max `5`                    | `1`     |
+| queue_max                 | `number`               | Flush when this many messages are buffered. Min `10`, max `100`                | `100`   |
+| collapse                  | `boolean`              | Merge duplicate or similar messages in a time window                           | `true`  |
+| collapse_seconds          | `number`               | Window for that merge. Min `1`, max `300`                                      | `60`    |
+| rate_limit_messages       | `number`               | Max webhook posts inside the rate-limit window                                 | `30`    |
+| rate_limit_window_seconds | `number`               | Rate-limit window in seconds                                                   | `60`    |
+| format                    | `boolean`              | Wrap the embed description in triple backticks so Discord renders a code block | `true`  |
 
 Same `pm2 set` style as events:
 
@@ -107,6 +107,16 @@ pm2 set pm2-discord:rate_limit_window_seconds 60
 
 Discord's own notes: [rate limits](https://discord.com/developers/docs/topics/rate-limits) and [bots being rate limited](https://support-dev.discord.com/hc/en-us/articles/6223003921559-My-Bot-is-Being-Rate-Limited).
 
+## Embeds
+
+Each post is an embed, not a plain message. Title is the event (`Error`, `Restart`, `Log`, …). The sidebar color follows that event: red for errors and exceptions, gold for restarts, blue for stdout, green for start/online, gray for stop/kill/exit.
+
+The timestamp is when we got the event from PM2. If the log line already had a clock, we keep that. If it didn't, we stamp ingest time.
+
+If Discord is unreachable, we stop retrying the backlog after a few attempts and drop it. You get one `Send failed` embed instead, retried about once a minute until it lands. Check the PM2 logs for what was missed.
+
+`format` wraps the body in a code fence. Discord allows 4096 characters in an embed description, twice the old 2000-character `content` cap.
+
 ## Buffering
 
 When `buffer` is on, messages for the same window are joined into one Discord payload:
@@ -115,10 +125,10 @@ When `buffer` is on, messages for the same window are joined into one Discord pa
 2. Later messages reset that timer and append, until one of these happens:
    - the timer fires
    - the buffer hits `queue_max`
-   - the next message would push the payload past Discord's 2000 character limit
+   - the next message would push the payload past Discord's 4096 character embed description limit
 3. Those messages are sent as one webhook post, then the buffer starts empty again.
 
-Code fences are applied to the finished payload, not to each log line. If the body still has to be cut to fit 2000 characters, the closing fence stays put so Discord does not fall out of the code block.
+Code fences are applied to the finished payload, not to each log line. If the body still has to be cut to fit 4096 characters, the closing fence stays put.
 
 ## Collapse
 
@@ -126,7 +136,7 @@ If a message matches one that is still waiting to send, it is counted instead of
 
 Matching ignores timestamps, whitespace, UUIDs, and hex pointers, so stack traces that only differ by a clock or an address still fold together. Turn it off with `pm2 set pm2-discord:collapse false`.
 
-If the host was offline and a hundred copies piled up, Discord gets one webhook with a count.
+If the host was offline, those extras are dropped with the rest of the backlog. Discord gets a `Send failed` notice, not a count of every line.
 
 ## Debugging
 

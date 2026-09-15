@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.1.0
+
+### 2026-09-15
+
+### Features
+
+- Post to Discord as embeds. Title is the event (`Error`, `Restart`, …), the sidebar color follows the event, and the description can be 4096 characters. Timestamp is when we received the event from PM2 (or the log's own clock, if it had one), not when Discord finally accepted the webhook.
+- If Discord stays unreachable, drop the backlog after a few retries and post one `Send failed` embed, retried about once a minute until it lands.
+
 ## 2.0.0
 
 ### 2026-09-14

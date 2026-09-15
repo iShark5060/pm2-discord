@@ -1,5 +1,5 @@
 import {
-  DISCORD_MESSAGE_CHAR_LIMIT,
+  DISCORD_EMBED_DESCRIPTION_LIMIT,
   fitDiscordPayload,
   messageFingerprint,
   moreEntriesLabel,
@@ -22,6 +22,11 @@ const DEFAULT_TICK_INTERVAL_MS = 100;
 // Max number of retry attempts per message to prevent infinite loops
 // and reduce duplicate message risk in edge cases
 const MAX_RETRY_ATTEMPTS = 5;
+const DEFAULT_DELIVERY_RETRY_SECONDS = 60;
+
+export const SEND_FAILED_EVENT = 'send_failed';
+export const SEND_FAILED_DESCRIPTION =
+  'Something went wrong when trying to send a message. Please check the logs.';
 
 export class MessageQueue {
   config: MessageQueueConfig;
@@ -55,6 +60,10 @@ export class MessageQueue {
   recentSent: Map<string, { at: number; template: DiscordMessage }> = new Map();
   pendingMore: Map<string, { extra: number; template: DiscordMessage; timer: NodeJS.Timeout }> =
     new Map();
+
+  sendFailedMessage: DiscordMessage | null = null;
+  deliveryRetryAt: number = 0;
+  deliveryRetryMs: number;
 
   constructor(config: MessageQueueConfig, sender: SendToDiscord) {
     this.config = config;
@@ -98,6 +107,11 @@ export class MessageQueue {
         Math.floor(safeRatePerSecond * (this.tickIntervalMs / 1000)),
       );
     }
+
+    this.deliveryRetryMs = Math.max(
+      0,
+      (config.delivery_retry_seconds ?? DEFAULT_DELIVERY_RETRY_SECONDS) * 1000,
+    );
   }
 
   /**
@@ -217,7 +231,7 @@ export class MessageQueue {
 
   bodyLimit(): number {
     // Leave room for ``` fences and a "[N more entries]" suffix outside the fence.
-    return DISCORD_MESSAGE_CHAR_LIMIT - (this.formatEnabled() ? 6 : 0) - 24;
+    return DISCORD_EMBED_DESCRIPTION_LIMIT - (this.formatEnabled() ? 6 : 0) - 24;
   }
 
   fingerprintOf(message: DiscordMessage): string {
@@ -243,12 +257,13 @@ export class MessageQueue {
   }
 
   prepareForSend(message: DiscordMessage): DiscordMessage {
+    const asCodeBlock = this.formatEnabled() && message.event !== SEND_FAILED_EVENT;
     return {
       ...message,
       description: fitDiscordPayload(
         message.description ?? '',
         message._repeatCount ?? 1,
-        this.formatEnabled(),
+        asCodeBlock,
       ),
     };
   }
@@ -283,7 +298,7 @@ export class MessageQueue {
       name: pending.template.name,
       event: pending.template.event,
       description: pending.template.description,
-      timestamp: Math.floor(Date.now() / 1000),
+      timestamp: pending.template.timestamp ?? Math.floor(Date.now() / 1000),
       _repeatCount: pending.extra + 1,
       _fingerprint: fingerprint,
     });
@@ -331,12 +346,100 @@ export class MessageQueue {
     return false;
   }
 
+  dropQueuedWork(): void {
+    this.messageQueue = [];
+    this.currentBuffer = [];
+    this.characterCount = 0;
+    if (this.bufferTimer) {
+      clearTimeout(this.bufferTimer);
+      this.bufferTimer = null;
+    }
+    for (const pending of this.pendingMore.values()) {
+      clearTimeout(pending.timer);
+    }
+    this.pendingMore.clear();
+  }
+
+  armSendFailedNotice(): void {
+    this.dropQueuedWork();
+    if (!this.sendFailedMessage) {
+      this.sendFailedMessage = {
+        name: 'pm2-discord',
+        event: SEND_FAILED_EVENT,
+        description: SEND_FAILED_DESCRIPTION,
+        timestamp: Math.floor(Date.now() / 1000),
+      };
+      log(
+        'warn',
+        'Discord delivery failed. Dropping queued events and retrying a Send failed notice.',
+      );
+    }
+    this.deliveryRetryAt = Date.now() + this.deliveryRetryMs;
+    if (!this.isShuttingDown) {
+      this.startInterval();
+    }
+  }
+
+  async processSendFailedNotice(): Promise<void> {
+    if (!this.sendFailedMessage || Date.now() < this.deliveryRetryAt) {
+      return;
+    }
+
+    this.isSending = true;
+    try {
+      this.recordRequest();
+      this.cleanupRequestHistory();
+      const prepared = this.prepareForSend(this.sendFailedMessage);
+      const result = await this.sender([prepared], this.config.discord_url);
+
+      if (result.rateLimitInfo) {
+        this.discordRateLimit = result.rateLimitInfo;
+      }
+
+      if (result.webhookInvalid) {
+        log('error', 'Webhook marked as invalid. Stopping message processing.');
+        this.webhookInvalid = true;
+        this.sendFailedMessage = null;
+        this.stopInterval();
+        return;
+      }
+
+      if (result.rateLimited && result.retryAfter) {
+        this.rateLimitedUntil = Date.now() + result.retryAfter * 1000;
+        this.deliveryRetryAt = this.rateLimitedUntil;
+        return;
+      }
+
+      if (result.success) {
+        this.sendFailedMessage = null;
+        this.deliveryRetryAt = 0;
+        this.stopInterval();
+        return;
+      }
+
+      this.deliveryRetryAt = Date.now() + this.deliveryRetryMs;
+    } catch (error) {
+      log('error', 'Error sending Send failed notice:', error);
+      this.deliveryRetryAt = Date.now() + this.deliveryRetryMs;
+    } finally {
+      this.isSending = false;
+    }
+  }
+
   /**
    * Process one tick of the queue - send up to requestsPerTick messages
    */
   async processTick(): Promise<void> {
     // Don't process if already sending, webhook is invalid, or we're shutting down
     if (this.isSending || this.webhookInvalid || this.isShuttingDown) {
+      return;
+    }
+
+    if (this.sendFailedMessage) {
+      if (!this.canSendNow()) {
+        this.deliveryRetryAt = Math.max(this.deliveryRetryAt, this.rateLimitedUntil);
+      }
+      await this.processSendFailedNotice();
       return;
     }
 
@@ -413,19 +516,22 @@ export class MessageQueue {
       } else if (result.success) {
         this.recordSent(messagesToSend);
       } else if (!result.success) {
-        // Handle other errors - retry with attempt tracking
+        let deliveryFailed = false;
         messagesToSend.forEach((msg) => {
           msg._retryAttempts = (msg._retryAttempts ?? 0) + 1;
           if (msg._retryAttempts <= MAX_RETRY_ATTEMPTS) {
-            // Put failed messages back for retry
             this.messageQueue.unshift(msg);
           } else {
             log(
               'warn',
               `Message exceeded max retry attempts (${MAX_RETRY_ATTEMPTS}), discarding: ${result.error}`,
             );
+            deliveryFailed = true;
           }
         });
+        if (deliveryFailed) {
+          this.armSendFailedNotice();
+        }
       }
     } catch (error) {
       log('error', 'Error sending to Discord:', error);
@@ -521,7 +627,7 @@ export class MessageQueue {
 
   /**
    * Checks if the buffer should be flushed immediately.
-   * Flushes when character count reaches Discord's 2000 char limit or queue_max messages.
+   * Flushes when character count reaches Discord's embed description limit or queue_max messages.
    *
    * @returns true if buffer should flush now, false otherwise
    */
@@ -548,10 +654,25 @@ export class MessageQueue {
       return;
     }
 
+    if (this.sendFailedMessage) {
+      debug('Dropping event; waiting to report a previous send failure');
+      return;
+    }
+
     const bufferEnabled = this.config.buffer ?? true;
     const bufferSeconds = this.config.buffer_seconds ?? 1;
 
     debug('Buffer is set to:', bufferEnabled, 'Buffer seconds:', bufferSeconds);
+
+    if (
+      typeof message.timestamp !== 'number' ||
+      !Number.isFinite(message.timestamp) ||
+      message.timestamp <= 0
+    ) {
+      // PM2 does not queue. Stamp when we hear the event so Discord still
+      // shows that time after a later buffer, collapse, or webhook retry.
+      message.timestamp = Math.floor(Date.now() / 1000);
+    }
 
     if (this.tryCollapse(message)) {
       return;
@@ -568,7 +689,7 @@ export class MessageQueue {
     }
 
     if (bufferEnabled) {
-      // if adding this new message would exceed Discord's 2000 character limit, flush current buffer first
+      // if adding this new message would exceed Discord's embed description limit, flush current buffer first
       // When joining messages with '\n', we add (buffer.length) newline characters total
       // For current buffer of size N, adding 1 message means (N) newlines between all messages
       const newlinesThatWillExist = this.currentBuffer.length; // Each message except first has a newline before it
@@ -576,7 +697,7 @@ export class MessageQueue {
       if (this.characterCount + newlinesThatWillExist + newMessageLength > this.bodyLimit()) {
         log(
           'log',
-          'Adding this message would exceed 2000 character limit, flushing current buffer first.',
+          'Adding this message would exceed the embed description limit, flushing current buffer first.',
         );
         this.flushBuffer();
       }

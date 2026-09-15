@@ -19,6 +19,14 @@ const {
 
 const APP_NAME = 'test-app';
 
+function embedFrom(req) {
+  return req.body?.embeds?.[0];
+}
+
+function embedDescription(req) {
+  return embedFrom(req)?.description ?? '';
+}
+
 before(() => {
   console.log(`\n\n==== Setting up integration test environment ====`);
   // start fresh, kill everything from any previous runs. This uninstalls pm2-discord too.
@@ -132,7 +140,7 @@ test('Integration tests', async () => {
     assert.ok(requests.length > 0, 'mock server should receive requests');
 
     // Check that payloads contain multiple combined messages due to buffering
-    const anyCombined = requests.some((r) => r.body && r.body.content && r.body.content.split('\n').length >= 3);
+    const anyCombined = requests.some((r) => embedDescription(r).split('\n').length >= 3);
     assert.ok(anyCombined, 'at least one request should contain combined messages');
 
     // Ensure we did not exceed webhook safe rate (approx <= 0.5 req/sec)
@@ -227,13 +235,13 @@ test('Integration tests', async () => {
 
     console.log('After shutdown, total requests received:', requests.length);
     if (requests.length > 0) {
-      console.log('First request content length:', requests[0].body?.content?.length);
+      console.log('First request embed description length:', embedDescription(requests[0]).length);
     }
 
     assert.ok(requests.length > 0, 'should flush buffered messages on shutdown');
     assert.ok(
-      requests.some((r) => r.body && r.body.content),
-      'should contain message content',
+      requests.some((r) => embedDescription(r).length > 0),
+      'should contain embed description',
     );
 
     mock.server.close();
@@ -306,7 +314,7 @@ test('Integration tests', async () => {
 
     // Check that messages are not combined (each should be individual)
     const allIndividual = requests.every((r) => {
-      const lines = r.body?.content?.trim().split('\n').filter(Boolean) || [];
+      const lines = embedDescription(r).trim().split('\n').filter(Boolean);
       return lines.length === 1;
     });
     assert.ok(allIndividual, 'messages should not be combined when buffering is disabled');
@@ -322,7 +330,7 @@ test('Integration tests', async () => {
   await withCleanup(testBufferingDisabledSendsMessagesImmediately);
 
   async function testRespectsCharacterLimitInBufferedMessages() {
-    console.log('Integration: respects 2000 character limit in buffered messages');
+    console.log('Integration: respects embed description character limit in buffered messages');
     mock = await startMockDiscordServer(8005);
 
     mock.setMode(MODES.SUCCESS);
@@ -338,7 +346,7 @@ test('Integration tests', async () => {
 
     pm2Start('INTERVAL_MS=50', APP_NAME); // Generate logs quickly to fill buffer
 
-    // Let it run long enough to generate many messages that would exceed 2000 chars if combined
+    // Let it run long enough to generate many messages
     await sleep(4000);
 
     pm2Delete(APP_NAME);
@@ -350,22 +358,17 @@ test('Integration tests', async () => {
 
     assert.ok(requests.length > 0, 'should receive at least one request');
 
-    // Check that no single request exceeds 2000 characters
-    const exceedsLimit = requests.some((r) => {
-      const contentLength = r.body?.content?.length ?? 0;
-      return contentLength > 2000;
-    });
-    assert.ok(!exceedsLimit, 'no request should exceed 2000 character limit');
+    const exceedsLimit = requests.some((r) => embedDescription(r).length > 4096);
+    assert.ok(!exceedsLimit, 'no embed description should exceed 4096 characters');
 
-    // Check that we have multiple requests (proving buffering was split)
-    assert.ok(requests.length >= 2, 'should have multiple requests due to character limit splitting');
-
-    // Verify all requests with content are under the limit
     const allValid = requests.every((r) => {
-      const contentLength = r.body?.content?.length ?? 0;
-      return contentLength <= 2000;
+      const embed = embedFrom(r);
+      if (!embed) {
+        return false;
+      }
+      return (embed.description?.length ?? 0) <= 4096 && typeof embed.title === 'string';
     });
-    assert.ok(allValid, 'all requests should have content within 2000 character limit');
+    assert.ok(allValid, 'all requests should be embeds within the description limit');
 
     mock.server.close();
     // Reset settings

@@ -2,7 +2,11 @@ import stripAnsi from 'strip-ansi';
 
 import type { BusData, LogMessage, Process } from './types/index.js';
 
+/** Discord `content` cap. Embeds use `DISCORD_EMBED_DESCRIPTION_LIMIT` instead. */
 export const DISCORD_MESSAGE_CHAR_LIMIT = 2000;
+export const DISCORD_EMBED_DESCRIPTION_LIMIT = 4096;
+export const DISCORD_EMBED_TITLE_LIMIT = 256;
+export const DISCORD_MAX_EMBEDS = 10;
 
 const PM2_DATE_PREFIX =
   /([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{1,2}:[0-9]{2}:[0-9]{2}(\.[0-9]{3})? [+-]?[0-9]{1,2}:[0-9]{2}(\.[0-9]{3})?)[:\s-]+/;
@@ -71,15 +75,15 @@ export function messageFingerprint(
 }
 
 /**
- * Build a Discord content string that never exceeds 2000 characters and always
- * closes a code fence when wrapping is on. Repeat count sits outside the fence
- * so it stays readable after truncation.
+ * Build an embed description that never exceeds Discord's 4096 character cap
+ * and always closes a code fence when wrapping is on. Repeat count sits outside
+ * the fence so it stays readable after truncation.
  */
 export function fitDiscordPayload(body: string, extraCount: number, asCodeBlock: boolean): string {
   const extra = extraCount > 1 ? `\n${moreEntriesLabel(extraCount - 1)}` : '';
   const open = asCodeBlock ? '```' : '';
   const close = asCodeBlock ? '```' : '';
-  const maxInner = DISCORD_MESSAGE_CHAR_LIMIT - open.length - close.length - extra.length;
+  const maxInner = DISCORD_EMBED_DESCRIPTION_LIMIT - open.length - close.length - extra.length;
   const inner = body.length > maxInner ? body.slice(0, Math.max(0, maxInner - 3)) + '...' : body;
   return open + inner + close + extra;
 }

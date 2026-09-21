@@ -1,0 +1,125 @@
+import pm2 from 'pm2';
+import pmx from 'pmx';
+import stripAnsi from 'strip-ansi';
+import { loadConfig } from './config.mjs';
+import { checkProcessName, parseIncomingLog, parseProcessName } from './log-utils.mjs';
+import { debug, log } from './logging.mjs';
+import { MessageQueue } from './message-queue.mjs';
+import { sendToDiscord } from './send-to-discord.mjs';
+import { gracefulShutdown } from './shutdown.mjs';
+import { isValidDiscordWebhookUrl } from './webhook-utils.mjs';
+const config = loadConfig();
+const discordUrl = config.discord_url;
+if (!isValidDiscordWebhookUrl(discordUrl)) {
+    process.exit(1);
+}
+const configFromInit = pmx.initModule(null, onInit);
+debug('pm2-discord: Module initialized with config:', configFromInit);
+function busLogText(data) {
+    return typeof data === 'string' ? data : '';
+}
+function killMessage(data) {
+    return data.msg ?? '';
+}
+function exceptionText(data) {
+    if (typeof data === 'object' &&
+        data !== null &&
+        'message' in data &&
+        typeof data.message === 'string') {
+        const code = 'code' in data && data.code != null ? String(data.code) : '';
+        return code + data.message;
+    }
+    return JSON.stringify(data);
+}
+function onInit() {
+    const messageQueue = new MessageQueue({
+        discord_url: discordUrl,
+        rate_limit_messages: config.rate_limit_messages,
+        rate_limit_window_seconds: config.rate_limit_window_seconds,
+        buffer: config.buffer,
+        buffer_seconds: config.buffer_seconds,
+        queue_max: config.queue_max,
+        collapse: config.collapse,
+        collapse_seconds: config.collapse_seconds,
+        format: config.format,
+    }, sendToDiscord);
+    const handleShutdown = () => gracefulShutdown(messageQueue).catch((e) => {
+        log('error', 'Error during graceful shutdown:', e);
+        process.exit(1);
+    });
+    process.on('SIGINT', handleShutdown);
+    process.on('SIGTERM', handleShutdown);
+    pm2.launchBus(function (_err, bus) {
+        if (config.log) {
+            bus.on('log:out', async function (data) {
+                if (!checkProcessName(data, config.process_name)) {
+                    return;
+                }
+                const parsedLog = await parseIncomingLog(busLogText(data.data));
+                messageQueue.addMessage({
+                    name: parseProcessName(data.process),
+                    event: 'log',
+                    description: parsedLog.description,
+                    timestamp: parsedLog.timestamp,
+                });
+            });
+        }
+        if (config.error) {
+            bus.on('log:err', async function (data) {
+                if (!checkProcessName(data, config.process_name)) {
+                    return;
+                }
+                const parsedLog = await parseIncomingLog(busLogText(data.data));
+                messageQueue.addMessage({
+                    name: parseProcessName(data.process),
+                    event: 'error',
+                    description: parsedLog.description,
+                    timestamp: parsedLog.timestamp,
+                });
+            });
+        }
+        if (config.kill) {
+            bus.on('pm2:kill', function (data) {
+                const msg = killMessage(data);
+                messageQueue.addMessage({
+                    name: 'PM2',
+                    event: 'kill',
+                    description: msg,
+                    timestamp: Math.floor(Date.now() / 1000),
+                });
+            });
+        }
+        if (config.exception) {
+            bus.on('process:exception', async function (data) {
+                if (!checkProcessName(data, config.process_name)) {
+                    return;
+                }
+                const rawDescription = exceptionText(data.data);
+                const description = stripAnsi(rawDescription);
+                messageQueue.addMessage({
+                    name: parseProcessName(data.process),
+                    event: 'exception',
+                    description,
+                    timestamp: Math.floor(Date.now() / 1000),
+                });
+            });
+        }
+        bus.on('process:event', function (data) {
+            const eventName = data.event ?? '';
+            const setting = eventName ? config[eventName] : undefined;
+            if (typeof setting === 'boolean' && !setting) {
+                return;
+            }
+            if (!checkProcessName(data, config.process_name)) {
+                return;
+            }
+            const message = `The following event has occurred on the PM2 process ${data.process.name}: ${eventName}`;
+            messageQueue.addMessage({
+                name: parseProcessName(data.process),
+                event: eventName,
+                description: message,
+                timestamp: Math.floor(Date.now() / 1000),
+            });
+        });
+    });
+}

@@ -364,7 +364,7 @@ export class MessageQueue {
     this.dropQueuedWork();
     if (!this.sendFailedMessage) {
       this.sendFailedMessage = {
-        name: 'pm2-discord',
+        name: 'PM2',
         event: SEND_FAILED_EVENT,
         description: SEND_FAILED_DESCRIPTION,
         timestamp: Math.floor(Date.now() / 1000),

@@ -240,13 +240,26 @@ test('getUserName: returns default name when all names are empty', () => {
     { name: '   ', description: 'log' },
   ];
   const result = getUserName(messages);
-  assert.strictEqual(result, 'PM2 Discord Bot', 'should return default name when all are empty');
+  assert.strictEqual(result, 'PM2', 'should return default name when all are empty');
 });
 
 test('getUserName: returns default name for empty array', () => {
   const messages = [];
   const result = getUserName(messages);
-  assert.strictEqual(result, 'PM2 Discord Bot', 'should return default name for empty array');
+  assert.strictEqual(result, 'PM2', 'should return default name for empty array');
+});
+
+test('getUserName: strips discord so Discord accepts the webhook username', () => {
+  assert.strictEqual(getUserName([{ name: 'Discord-GitHub-Widget' }]), 'GitHub-Widget');
+  assert.strictEqual(getUserName([{ name: 'pm2-discord' }]), 'pm2');
+  assert.strictEqual(getUserName([{ name: 'clyde' }]), 'PM2');
+});
+
+test('getUserName: caps the joined username at 80 characters', () => {
+  const messages = [{ name: 'a'.repeat(40) }, { name: 'b'.repeat(40) }, { name: 'c'.repeat(40) }];
+  const result = getUserName(messages);
+  assert.ok(result.length <= 80, `username length ${result.length} exceeds 80`);
+  assert.ok(!result.endsWith(',') && !result.endsWith(' '));
 });
 
 test('getUserName: preserves order of unique names', () => {

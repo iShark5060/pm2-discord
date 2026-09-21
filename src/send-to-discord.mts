@@ -40,6 +40,18 @@ function parseRateLimitHeaders(headers: Headers): DiscordRateLimitInfo {
   };
 }
 
+async function discordErrorDetail(res: Response): Promise<string> {
+  try {
+    const text = (await res.text()).trim();
+    if (!text) {
+      return res.statusText;
+    }
+    return text.length > 500 ? `${text.slice(0, 500)}...` : text;
+  } catch {
+    return res.statusText;
+  }
+}
+
 function readRetryAfter(body: unknown): { retryAfter: number; isGlobal: boolean } {
   if (typeof body !== 'object' || body === null) {
     return { retryAfter: 0, isGlobal: false };
@@ -50,29 +62,34 @@ function readRetryAfter(body: unknown): { retryAfter: number; isGlobal: boolean 
   return { retryAfter, isGlobal };
 }
 
+/** Discord rejects webhook usernames outside 1-80 chars, or that contain these words. */
+const DISCORD_USERNAME_LIMIT = 80;
+
+function discordSafeName(name: string): string {
+  return name
+    .replace(/discord|clyde/gi, '')
+    .replace(/\s+/g, ' ')
+    .replace(/^[\s\-_,]+|[\s\-_,]+$/g, '')
+    .trim();
+}
+
 /**
- * Generates username for Discord webhook from process names.
- * When multiple messages are batched together, combines unique process names
- * into a comma-separated list. Falls back to default bot name if no valid names.
- *
- * @param messages - Array of Discord messages to extract names from
- * @returns Comma-separated process names or 'PM2 Discord Bot' if none found
- * @example
- * // Single process:
- * getUserName([{ name: 'api', ... }]) // => "api"
- *
- * // Multiple processes batched:
- * getUserName([{ name: 'api', ... }, { name: 'worker', ... }]) // => "api, worker"
- *
- * // Duplicate names filtered:
- * getUserName([{ name: 'api', ... }, { name: 'api', ... }]) // => "api"
- *
- * // Empty names handled:
- * getUserName([{ name: '', ... }]) // => "PM2 Discord Bot"
+ * Webhook username from process names. Discord returns 400 if the name contains
+ * "discord" or "clyde", so those words are removed before the name is sent.
  */
 export function getUserName(messages: DiscordMessage[]): string {
-  const names = new Set(messages.map((msg) => msg.name.trim()).filter((name) => name.length > 0));
-  return Array.from(names).join(', ') || 'PM2 Discord Bot';
+  const names = new Set(
+    messages.map((msg) => discordSafeName(msg.name)).filter((name) => name.length > 0),
+  );
+  const joined = Array.from(names)
+    .join(', ')
+    .replace(/[\s,]+$/, '');
+  if (!joined) {
+    return 'PM2';
+  }
+  return joined.length > DISCORD_USERNAME_LIMIT
+    ? joined.slice(0, DISCORD_USERNAME_LIMIT).replace(/[\s,]+$/, '')
+    : joined;
 }
 
 export const EVENT_EMBED_STYLES: Record<string, { title: string; color: number }> = {
@@ -234,11 +251,15 @@ export async function sendToDiscord(
       };
     }
 
-    // Handle other error statuses
-    log('error', `Discord webhook returned status ${res.status}: ${res.statusText}`);
+    // Handle other error statuses. Include Discord's body: statusText is only "Bad Request".
+    const detail = await discordErrorDetail(res);
+    log(
+      'error',
+      `Discord webhook returned status ${res.status} for username "${payload.username}": ${detail}`,
+    );
     return {
       success: false,
-      error: `HTTP ${res.status}: ${res.statusText}`,
+      error: `HTTP ${res.status}: ${detail}`,
       rateLimitInfo,
     };
   } catch (error: unknown) {

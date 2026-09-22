@@ -1,6 +1,6 @@
 {
   "name": "pm2-discord",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "A PM2 module to emit events and logs to Discord",
   "keywords": [
     "discord",

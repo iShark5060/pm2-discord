@@ -1,14 +1,25 @@
 import { log } from './logging.mjs';
 import type { MessageQueue } from './message-queue.mjs';
 
+type SentinelHandle = {
+  noteGracefulExit: (signal?: string) => void;
+  noteCrash: (err: unknown) => void;
+  stop: () => void;
+} | null;
+
 // Shutdown timeout constants
 const SHUTDOWN_TIMEOUT_MS = 5000; // Max 5 seconds to flush remaining messages
 const MAX_SHUTDOWN_ATTEMPTS = 50; // Max iterations to drain queue
 const SHUTDOWN_RETRY_DELAY_MS = 50; // Delay between queue processing attempts
 
-export async function gracefulShutdown(messageQueue: MessageQueue) {
+export async function gracefulShutdown(
+  messageQueue: MessageQueue,
+  sentinelAgent: SentinelHandle = null,
+) {
   // Flush queue before exit
   if (!messageQueue) {
+    sentinelAgent?.noteGracefulExit();
+    sentinelAgent?.stop();
     process.exit(0);
   }
 
@@ -37,5 +48,7 @@ export async function gracefulShutdown(messageQueue: MessageQueue) {
   }
 
   log('log', 'Message queue flushed, exiting.');
+  sentinelAgent?.noteGracefulExit();
+  sentinelAgent?.stop();
   process.exit(0);
 }

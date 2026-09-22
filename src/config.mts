@@ -23,6 +23,8 @@ export const defaultConfig: Config = {
   online: false,
   process_name: null,
   discord_url: null,
+  sentinel_ingest_url: null,
+  sentinel_ingest_token: null,
   buffer: true,
   buffer_seconds: 1,
   queue_max: 100,
@@ -87,8 +89,7 @@ export function convertConfigValue(key: string, value: unknown): unknown {
     return undefined;
   }
 
-  // remaining key is `process_name` which can be string, string[], or null/undefined
-  // and can be returned as-is
+  // remaining keys are process_name / discord_url / sentinel_* which can be string or null
   return value;
 }
 

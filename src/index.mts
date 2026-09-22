@@ -7,6 +7,7 @@ import { checkProcessName, parseIncomingLog, parseProcessName } from './log-util
 import { debug, log } from './logging.mjs';
 import { MessageQueue } from './message-queue.mjs';
 import { sendToDiscord } from './send-to-discord.mjs';
+import { createAppSentinelAgent } from './sentinelAgent.mjs';
 import { gracefulShutdown } from './shutdown.mjs';
 import type { BusData, Config, Pm2Bus } from './types/index.js';
 import { isValidDiscordWebhookUrl } from './webhook-utils.mjs';
@@ -17,6 +18,14 @@ const discordUrl = config.discord_url;
 if (!isValidDiscordWebhookUrl(discordUrl)) {
   process.exit(1);
 }
+
+const sentinelAgent = createAppSentinelAgent({
+  appId: 'pm2-discord',
+  displayName: 'pm2-discord',
+  ingestUrl: config.sentinel_ingest_url,
+  token: config.sentinel_ingest_token,
+});
+sentinelAgent?.start();
 
 const configFromInit = pmx.initModule(null, onInit);
 debug('pm2-discord: Module initialized with config:', configFromInit);
@@ -59,12 +68,20 @@ function onInit() {
   );
 
   const handleShutdown = () =>
-    gracefulShutdown(messageQueue).catch((e) => {
+    gracefulShutdown(messageQueue, sentinelAgent).catch((e) => {
       log('error', 'Error during graceful shutdown:', e);
+      sentinelAgent?.noteCrash(e);
+      sentinelAgent?.stop();
       process.exit(1);
     });
   process.on('SIGINT', handleShutdown);
   process.on('SIGTERM', handleShutdown);
+  process.on('unhandledRejection', (reason) => {
+    sentinelAgent?.noteCrash(reason);
+  });
+  process.on('uncaughtException', (err) => {
+    sentinelAgent?.noteCrash(err);
+  });
 
   pm2.launchBus(function (_err: Error | null, bus: Pm2Bus) {
     if (config.log) {

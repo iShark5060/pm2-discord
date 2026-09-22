@@ -168,4 +168,14 @@ export interface Config extends MessageQueueConfig, Pm2ProcessEvents {
    * Enable `process:exception` event forwarding
    */
   exception: boolean;
+
+  /**
+   * Optional Sentinel ingest URL (process metrics only; no HTTP surface here).
+   */
+  sentinel_ingest_url: string | null;
+
+  /**
+   * Optional Sentinel ingest bearer token.
+   */
+  sentinel_ingest_token: string | null;
 }

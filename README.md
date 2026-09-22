@@ -82,6 +82,8 @@ Stdout is noisy on most apps, so `log` is off until you ask for it. Restarts and
 | rate_limit_messages       | `number`               | Max webhook posts inside the rate-limit window                                 | `30`    |
 | rate_limit_window_seconds | `number`               | Rate-limit window in seconds                                                   | `60`    |
 | format                    | `boolean`              | Wrap the embed description in triple backticks so Discord renders a code block | `true`  |
+| sentinel_ingest_url       | `string`               | Optional Sentinel ingest URL (heap/lag/ELU; no HTTP metrics)                   | `null`  |
+| sentinel_ingest_token     | `string`               | Optional Sentinel ingest bearer token                                          | `null`  |
 
 Same `pm2 set` style as events:
 
@@ -92,6 +94,8 @@ pm2 set pm2-discord:buffer_seconds 2
 pm2 set pm2-discord:queue_max 50
 pm2 set pm2-discord:collapse true
 pm2 set pm2-discord:collapse_seconds 60
+pm2 set pm2-discord:sentinel_ingest_url http://127.0.0.1:3005/api/ingest
+pm2 set pm2-discord:sentinel_ingest_token your-token
 ```
 
 ## Rate limiting

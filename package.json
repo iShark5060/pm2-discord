@@ -44,7 +44,7 @@
     "strip-ansi": "^7.2.0"
   },
   "devDependencies": {
-    "@types/node": "^26.6.2",
+    "@types/node": "^26.6.3",
     "oxfmt": "^0.70.0",
     "oxlint": "^1.85.0",
     "typescript": "^7.0.2"

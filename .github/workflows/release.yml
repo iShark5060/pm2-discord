@@ -21,7 +21,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.release.tag_name }}
           fetch-depth: 0
@@ -44,7 +44,7 @@ jobs:
         run: node --check dist/index.mjs
 
       - name: Attest dist/index.mjs
-        uses: actions/attest@v4
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: dist/index.mjs
 
@@ -97,7 +97,7 @@ jobs:
 
     steps:
       - name: Resolve workflow conclusion
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         id: conclusion
         with:
           script: |
@@ -112,7 +112,7 @@ jobs:
             core.setOutput('conclusion', conclusion)
 
       - name: Send Discord notification
-        uses: iShark5060/actions-discord-status@v1
+        uses: iShark5060/actions-discord-status@66f6681ff19536b7787feecc4fdc20c506de365b # v1.2.1
         if: always()
         with:
           webhook: ${{ secrets.DISCORD_WEBHOOK }}

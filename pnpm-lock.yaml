@@ -170,8 +170,8 @@ importers:
         specifier: https://github.com/Dark-Avian-Labs/Sentinel/releases/download/agent-v0.1.0/dark-avian-labs-sentinel-agent-0.1.0.tgz
         version: https://github.com/Dark-Avian-Labs/Sentinel/releases/download/agent-v0.1.0/dark-avian-labs-sentinel-agent-0.1.0.tgz(express@5.2.1(supports-color@7.2.0))
       pm2:
-        specifier: ^7.1.1
-        version: 7.1.1(supports-color@7.2.0)
+        specifier: ^7.1.2
+        version: 7.1.2(supports-color@7.2.0)
       pmx:
         specifier: 1.6.8
         version: 1.6.8(supports-color@7.2.0)
@@ -930,8 +930,8 @@ packages:
     resolution: {integrity: sha512-YJx6RXKrVrWaphEYf++EdOOx9EH18vM8RSZN/P1Y+NokTKqYAca/ejXwVLyiEpNju4HPZEk3Y2uZouwMqUlcgg==}
     engines: {node: '>=4.0.0'}
 
-  pm2@7.1.1:
-    resolution: {integrity: sha512-onJNVdGZXz5M1KYk6nekSQz/9ngv2b9dX14QGGF5O+bP55WRxCl603OsqXtzA/xpSDSYDs8f5/2gC38B03GJCQ==}
+  pm2@7.1.2:
+    resolution: {integrity: sha512-FNzFdXanVH4BlUCZPaTfbVEaXTCl7jo3qKv/Dp2HKk5YZGV+gx8RHEg1Z0pRPKq5zPZNLM3sGo0NcM9DsLvnWQ==}
     engines: {node: '>=18.0.0'}
     hasBin: true
 
@@ -1628,7 +1628,7 @@ snapshots:
       run-series: 1.1.9
       tv4: 1.3.0
 
-  pm2@7.1.1(supports-color@7.2.0):
+  pm2@7.1.2(supports-color@7.2.0):
     dependencies:
       '@pm2/js-api': 0.8.1(supports-color@7.2.0)
       '@pm2/pm2-version-check': 1.0.4(supports-color@7.2.0)
